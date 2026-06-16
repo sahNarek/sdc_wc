@@ -81,7 +81,8 @@ sdc_wc/
 │   ├── 04_parse_lineups.R       # Player/team name mapping
 │   ├── 05_parse_stats.R         # Match & team metadata
 │   ├── 06_build_match.R         # Single-match pipeline
-│   └── 07_build_all.R           # Build & save wc_matches.rda
+│   ├── 07_build_all.R           # Build & save wc_matches.rda
+│   └── 08_render_report.R       # HTML / PDF report rendering
 ├── R/viz/
 │   ├── 00_packages.R            # Dependencies & fonts
 │   ├── viz_theme.R              # Palette, theme, save_figure()
@@ -93,7 +94,7 @@ sdc_wc/
 │   └── 02_match_report_template.Rmd
 ├── scripts/
 │   ├── run_build.R              # CLI: build data
-│   └── run_report.R             # CLI: knit report + export figures
+│   └── run_report.R             # CLI: knit report (html | pdf | both)
 ├── output/                      # Generated reports & figures (gitignored)
 ├── game_ids.csv                 # Match schedule & StatsBomb IDs
 ├── sdc_wc.Rproj
@@ -118,14 +119,20 @@ Rscript scripts/run_build.R
 ### 3. Generate report and figures
 
 ```bash
+# HTML (default)
 Rscript scripts/run_report.R
-# Or for a specific match:
-Rscript scripts/run_report.R 4036731
+
+# PDF (installs TinyTeX on first run)
+Rscript scripts/run_report.R 4036731 pdf
+
+# Both HTML and PDF
+Rscript scripts/run_report.R 4036731 both
 ```
 
 ### 4. Open outputs
 
-- Report: `output/reports/02_match_report_template.html`
+- HTML report: `output/reports/02_match_report_template.html`
+- PDF report: `output/reports/02_match_report_template.pdf`
 - Figures: `output/figures/4036731/`
 
 ### From RStudio
@@ -147,6 +154,10 @@ rmarkdown::render(
   output_dir = "output/reports",
   params = list(match_id = 4036731)
 )
+
+# PDF export (same content as HTML)
+render_match_report(match_id = 4036731, format = "pdf")
+render_match_report(match_id = 4036731, format = "both")
 ```
 
 ---
@@ -209,19 +220,33 @@ save_figure(
 
 ### Step 4 — Knit the full match report
 
+**HTML:**
+
 ```r
 rmarkdown::render(
   "reports/02_match_report_template.Rmd",
   output_dir = "output/reports",
-  params = list(
-    match_id   = 4036731,
-    home_team  = "Germany",
-    away_team  = "Curacao",
-    home_color = "#1F77B4",
-    away_color = "#FF7F0E"
-  )
+  output_format = "html_document",
+  params = list(match_id = 4036731)
 )
 ```
+
+**PDF** (all charts embedded, same sections as HTML):
+
+```r
+render_match_report(match_id = 4036731, format = "pdf")
+# or both formats at once:
+render_match_report(match_id = 4036731, format = "both")
+```
+
+From the shell:
+
+```bash
+Rscript scripts/run_report.R 4036731 pdf
+Rscript scripts/run_report.R 4036731 both
+```
+
+PDF export uses **TinyTeX** (installed automatically on first PDF render). Requires an internet connection once for the LaTeX setup.
 
 ---
 
@@ -403,6 +428,7 @@ File names use descriptive slugs, e.g. `Defensive_Heatmap_Germany_vs_Curacao.png
 | Fonts look wrong | Run `load_project()` — needs internet once for Google Fonts. |
 | Heatmap is solid colour | Ensure you are on latest `R/viz/viz_use_case_06.R` (uses `geom_rect`, not `geom_bin2d`). |
 | Package missing | `source("R/viz/00_packages.R")` or re-run `load_project()`. |
+| PDF render fails | Run `tinytex::install_tinytex()` once, then `Rscript scripts/run_report.R 4036731 pdf`. |
 
 For JSON field definitions see `docs/data_dictionary.md`.
 

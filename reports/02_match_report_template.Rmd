@@ -4,6 +4,13 @@ output:
   html_document:
     toc: true
     toc_float: true
+  pdf_document:
+    toc: true
+    number_sections: true
+    fig_crop: false
+    keep_tex: false
+    includes:
+      in_header: pdf_styles.tex
 params:
   match_id: 4036731
   home_team: "Germany"
@@ -13,7 +20,23 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.width = 10, fig.height = 6)
+is_pdf <- knitr::is_latex_output()
+
+fig_width  <- if (is_pdf) 9 else 10
+fig_height <- if (is_pdf) 5.2 else 6
+
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = fig_width,
+  fig.height = fig_height,
+  fig.align = "center",
+  out.width = if (is_pdf) "95%" else "100%",
+  dpi = 150
+)
+
+`%||%` <- function(x, y) if (is.null(x)) y else x
 here <- if (file.exists("reports/_setup.R")) "reports" else if (file.exists("_setup.R")) "." else ".."
 source(file.path(here, "_setup.R"))
 load_project(root = normalizePath(file.path(here, ".."), mustWork = FALSE))

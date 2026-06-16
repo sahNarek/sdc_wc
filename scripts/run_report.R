@@ -8,21 +8,34 @@ root <- if (length(file_arg)) {
   normalizePath(getwd(), mustWork = FALSE)
 }
 
-match_id <- if (length(commandArgs(trailingOnly = TRUE))) {
-  as.integer(commandArgs(trailingOnly = TRUE)[1])
+cli_args <- commandArgs(trailingOnly = TRUE)
+
+match_id <- if (length(cli_args) >= 1) {
+  as.integer(cli_args[[1]])
 } else {
   4036731L
 }
 
-if (!requireNamespace("rmarkdown", quietly = TRUE)) {
-  install.packages("rmarkdown", repos = "https://cloud.r-project.org")
+format <- if (length(cli_args) >= 2) {
+  tolower(cli_args[[2]])
+} else {
+  "html"
 }
 
-rmarkdown::render(
-  file.path(root, "reports", "02_match_report_template.Rmd"),
-  output_dir = file.path(root, "output", "reports"),
-  params = list(match_id = match_id),
-  quiet = FALSE
+if (!format %in% c("html", "pdf", "both")) {
+  stop("Format must be one of: html, pdf, both", call. = FALSE)
+}
+
+source(file.path(root, "reports", "_setup.R"))
+load_project(root = root)
+
+outputs <- render_match_report(
+  match_id = match_id,
+  format = format,
+  root = root
 )
 
-message("Report written to output/reports/")
+message("Report written to: ", file.path(root, "output", "reports"))
+for (out in outputs) {
+  message("  - ", out)
+}
