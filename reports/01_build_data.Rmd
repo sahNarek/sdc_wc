@@ -1,0 +1,58 @@
+---
+title: "Build WC Match Data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
+here <- if (file.exists("reports/_setup.R")) "reports" else if (file.exists("_setup.R")) "." else ".."
+source(file.path(here, "_setup.R"))
+load_project(root = normalizePath(file.path(here, ".."), mustWork = FALSE))
+```
+
+## Configuration
+
+```{r config}
+config <- load_match_config()
+config
+```
+
+## Build dataset
+
+```{r build}
+match_ids <- config$development$sample_match_ids
+assigned_pending <- purrr::map_int(config$assigned, "statsbomb_id")
+
+message("Building development matches: ", paste(match_ids, collapse = ", "))
+message(
+  "Assigned (pending) matches: ",
+  paste(assigned_pending, collapse = ", ")
+)
+
+wc_matches <- build_all_matches(
+  match_ids = match_ids,
+  save_path = file.path(get_processed_dir(), "wc_matches.rda")
+)
+```
+
+## Summary — Germany vs Curaçao (`4036731`)
+
+```{r summary}
+primary_id <- config$development$primary_match_id
+
+wc_matches$meta %>%
+  filter(match_id == primary_id)
+
+wc_matches$events %>%
+  filter(match_id == primary_id) %>%
+  count(type_name, sort = TRUE) %>%
+  head(10)
+
+shots_goals <- compute_team_shots_goals(
+  wc_matches$events,
+  match_id = primary_id
+)
+shots_goals
+```
+
+Saved object: `data/processed/wc_matches.rda`

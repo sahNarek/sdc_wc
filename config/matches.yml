@@ -1,0 +1,19 @@
+development:
+  primary_match_id: 4036731
+  primary_label: "Germany vs Curacao"
+  sample_match_ids:
+    - 4036731
+
+assigned:
+  - id: WC26-019
+    statsbomb_id: 4036737
+    label: "Argentina vs Algeria"
+    status: pending
+  - id: WC26-045
+    statsbomb_id: 4036758
+    label: "Portugal vs Uzbekistan"
+    status: pending
+  - id: WC26-071
+    statsbomb_id: 4036772
+    label: "Algeria vs Austria"
+    status: pending

@@ -1,0 +1,40 @@
+# --- R / RStudio ---
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj.user
+*.utf8.md
+*.knit.md
+*.nb.html
+
+# --- Raw & processed match data (do not commit) ---
+data_sample/
+data/raw/
+data/processed/
+*.rda
+*.rds
+
+# --- Generated outputs ---
+output/
+
+# --- Report build artefacts ---
+reports/*.html
+reports/*.knit.md
+
+# --- Logs & temp ---
+*.log
+*.tmp
+*.temp
+.cache/
+*.zip
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Downloaded / saved web pages ---
+*_files/
+
+# --- Optional: large reference assets (uncomment if needed) ---
+# *.pdf

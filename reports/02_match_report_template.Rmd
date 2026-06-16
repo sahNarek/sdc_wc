@@ -1,0 +1,192 @@
+---
+title: "Match Report"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+params:
+  match_id: 4036731
+  home_team: "Germany"
+  away_team: "Curacao"
+  home_color: "#1F77B4"
+  away_color: "#FF7F0E"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.width = 10, fig.height = 6)
+here <- if (file.exists("reports/_setup.R")) "reports" else if (file.exists("_setup.R")) "." else ".."
+source(file.path(here, "_setup.R"))
+load_project(root = normalizePath(file.path(here, ".."), mustWork = FALSE))
+
+match_id <- params$match_id
+rda_path <- file.path(get_processed_dir(), "wc_matches.rda")
+
+if (!file.exists(rda_path)) {
+  build_all_matches(
+    match_ids = load_match_config()$development$sample_match_ids,
+    save_path = rda_path
+  )
+}
+
+load(rda_path)
+events <- wc_matches$events %>% filter(match_id == !!match_id)
+pms <- wc_matches$player_match_stats %>% filter(match_id == !!match_id)
+meta <- wc_matches$meta %>% filter(match_id == !!match_id)
+
+if (nrow(meta) == 0) {
+  stop("No data for match ", match_id, ". Build wc_matches.rda first.")
+}
+
+fig_dir <- get_figures_dir(match_id)
+slug <- figure_slug(meta$home_team, "vs", meta$away_team)
+team_colors <- setNames(
+  c(params$home_color, params$away_color),
+  c(meta$home_team, meta$away_team)
+)
+
+subtitle <- paste0(
+  meta$competition_name, " ", meta$season_name,
+  " | ", meta$display_home, " ", meta$home_score, "–", meta$away_score, " ", meta$display_away,
+  " | ", meta$stadium
+)
+```
+
+# `r meta$display_home` `r meta$home_score`–`r meta$away_score` `r meta$display_away`
+
+`r subtitle`
+
+## Shots and goals by team
+
+```{r uc1}
+shots_goals <- compute_team_shots_goals(events, match_id = match_id)
+
+p1 <- viz_team_shots_goals(
+  events,
+  match_id = match_id,
+  title = paste("Shots and goals:", meta$home_team, "vs", meta$away_team),
+  subtitle = subtitle
+)
+print(p1)
+save_figure(
+  p1,
+  file.path(fig_dir, paste0("Shots_Goals_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+```{r uc2}
+p2 <- viz_team_shots_bar(
+  shots_goals,
+  title = paste("Total shots:", meta$home_team, "vs", meta$away_team),
+  subtitle = subtitle,
+  fill_colors = team_colors
+)
+print(p2)
+save_figure(
+  p2,
+  file.path(fig_dir, paste0("Shots_Bar_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+## Shots per 90 minutes
+
+```{r uc3}
+p3 <- viz_player_shots_per90(
+  events,
+  player_match_stats_df = pms,
+  match_id = match_id,
+  min_minutes = 30,
+  top_n = 10,
+  title = "Shots per 90 minutes",
+  subtitle = subtitle
+)
+print(p3)
+save_figure(
+  p3,
+  file.path(fig_dir, paste0("Shots_Per90_", slug, ".png")),
+  format = "4_5"
+)
+```
+
+## Passes into the penalty area
+
+```{r uc4}
+top_passer <- events %>%
+  filter(type.name == "Pass", is.na(pass.outcome.name), team.name == meta$home_team) %>%
+  count(player.id, player.name, sort = TRUE) %>%
+  slice(1)
+
+p4 <- viz_player_pass_map(
+  events,
+  player_id = top_passer$player.id,
+  match_id = match_id,
+  subtitle = subtitle,
+  box_only = TRUE
+)
+print(p4)
+save_figure(
+  p4,
+  file.path(fig_dir, paste0("Pass_Map_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+## Expected goal contribution
+
+```{r uc5}
+p5 <- viz_xg_xga_contribution(
+  events,
+  player_match_stats_df = pms,
+  match_id = match_id,
+  min_minutes = 30,
+  top_n = 12,
+  subtitle = subtitle
+)
+print(p5)
+save_figure(
+  p5,
+  file.path(fig_dir, paste0("xG_Contribution_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+## Defensive action heatmaps
+
+```{r uc6}
+p6 <- viz_defensive_heatmap(
+  events,
+  match_id = match_id,
+  title = paste("Where teams defend:", meta$home_team, "vs", meta$away_team),
+  subtitle = subtitle
+)
+print(p6)
+save_figure(
+  p6,
+  file.path(fig_dir, paste0("Defensive_Heatmap_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+## Shot map — top goal scorer
+
+```{r uc7}
+scorer <- top_goal_scorer(events, match_id = match_id, team_name = meta$home_team)
+
+p7 <- viz_shot_map(
+  events,
+  player_id = scorer$player.id,
+  match_id = match_id,
+  subtitle = subtitle
+)
+print(p7)
+save_figure(
+  p7,
+  file.path(fig_dir, paste0("Shot_Map_", slug, ".png")),
+  format = "1_1"
+)
+```
+
+---
+
+Figures saved to: `r fig_dir`
