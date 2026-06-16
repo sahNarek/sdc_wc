@@ -68,7 +68,7 @@ viz_xg_xga_contribution <- function(events_df,
                                     match_id = NULL,
                                     min_minutes = 45,
                                     top_n = 15,
-                                    title = "Expected goal contribution per 90",
+                                    title = NULL,
                                     subtitle = NULL) {
   chart <- compute_xg_xga_contribution(
     events_df,
@@ -100,7 +100,7 @@ viz_xg_xga_contribution <- function(events_df,
       )
     ) +
     labs(
-      title = title,
+      title = title %||% "Expected goal contribution per 90",
       subtitle = subtitle,
       x = NULL,
       y = "Expected goals per 90 minutes",

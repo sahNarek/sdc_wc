@@ -29,6 +29,66 @@ palette_single_gradient <- function(color = SDC_PALETTE[["blue"]],
   grDevices::colorRampPalette(c(lightest, color))(n)
 }
 
+#' Very light tint of a base colour for single-hue chart gradients
+gradient_lightest <- function(color, mix = 0.94) {
+  rgb <- grDevices::col2rgb(color) / 255
+  blended <- mix * c(1, 1, 1) + (1 - mix) * as.numeric(rgb)
+  grDevices::rgb(blended[[1]], blended[[2]], blended[[3]])
+}
+
+#' Resolve single-hue gradient colours (shot maps, heatmaps, icons)
+resolve_single_hue_gradient <- function(color = SDC_PALETTE[["blue"]],
+                                        lightest_color = NULL,
+                                        gradient_colors = NULL,
+                                        n = 11) {
+  if (!is.null(gradient_colors)) {
+    return(gradient_colors)
+  }
+
+  palette_single_gradient(
+    color = color,
+    n = n,
+    lightest = lightest_color %||% gradient_lightest(color)
+  )
+}
+
+#' Title-case label for an SDC palette key (e.g. blue -> Blue)
+palette_color_label <- function(palette_key) {
+  key <- tolower(as.character(palette_key))
+  if (!key %in% names(SDC_PALETTE)) {
+    stop("Unknown palette colour: ", palette_key, call. = FALSE)
+  }
+  paste0(toupper(substr(key, 1, 1)), substr(key, 2, nchar(key)))
+}
+
+#' Iterate over all six SDC palette colours
+iterate_sdc_palette <- function(callback) {
+  for (palette_key in names(SDC_PALETTE)) {
+    callback(
+      palette_key = palette_key,
+      color_name = palette_color_label(palette_key),
+      color_hex = SDC_PALETTE[[palette_key]]
+    )
+  }
+  invisible(NULL)
+}
+
+#' Save one ggplot per SDC palette colour
+save_palette_figures <- function(plot_fn,
+                                 base_path,
+                                 format = c("16_9", "4_5", "1_1"),
+                                 color_param = c("color", "shot_color", "heat_color")) {
+  color_param <- match.arg(color_param)
+  iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+    args <- list(color_hex)
+    names(args) <- color_param
+    plot <- do.call(plot_fn, args)
+    path <- paste0(base_path, "_", color_name, ".png")
+    save_figure(plot, path, format = format)
+    invisible(path)
+  })
+}
+
 #' Article-grade ggplot theme
 theme_sdc <- function(base_size = 13) {
   theme_minimal(base_size = base_size, base_family = SDC_FONTS$body) +
@@ -178,4 +238,76 @@ apply_team_display_labels <- function(df, team_col = "Team", name_map = NULL) {
 
   df[[team_col]] <- dplyr::recode(df[[team_col]], !!!name_map, .default = df[[team_col]])
   df
+}
+
+#' Subtitle line shared across match charts
+match_chart_subtitle <- function(meta) {
+  paste0(
+    meta$competition_name, " ", meta$season_name,
+    " | ", meta$display_home, " ", meta$home_score, "–", meta$away_score, " ",
+    meta$display_away,
+    if (!is.na(meta$stadium) && nzchar(meta$stadium)) paste0(" | ", meta$stadium) else ""
+  )
+}
+
+#' Default chart titles for a match (override per game via report params or scripts)
+default_chart_titles <- function(meta) {
+  matchup <- paste(meta$display_home, "vs", meta$display_away)
+  list(
+    shots_goals = paste("Shots and goals:", matchup),
+    shots_bar = paste("Total shots:", matchup),
+    shots_per90 = "Shots per 90 minutes",
+    xg_contribution = "Expected goal contribution per 90",
+    defensive_heatmap = paste("Where teams defend:", matchup),
+    pass_map_suffix = "completed passes into the penalty area",
+    shot_map_suffix = "shot map",
+    shot_map_left_foot_suffix = "shot map (left foot)"
+  )
+}
+
+#' Merge default titles with optional overrides
+resolve_chart_titles <- function(meta, overrides = NULL) {
+  utils::modifyList(default_chart_titles(meta), overrides %||% list())
+}
+
+#' Player-facing chart title
+player_chart_title <- function(player_label, suffix = "shot map") {
+  paste0(player_label, ": ", suffix)
+}
+
+#' Display label for a player from event rows
+player_display_label <- function(events_df, player_id = NULL, player_name = NULL) {
+  data <- events_df
+  if (!is.null(player_id)) {
+    data <- data %>% dplyr::filter(player.id == !!player_id)
+  }
+  if (!is.null(player_name)) {
+    data <- data %>%
+      dplyr::filter(player.name == !!player_name | player_display_name == !!player_name)
+  }
+  if (nrow(data) == 0) {
+    return(player_name %||% NA_character_)
+  }
+  dplyr::coalesce(data$player_display_name[1], data$player.name[1])
+}
+
+#' Lookup a featured player for shot-map sections
+resolve_featured_player <- function(events_df, player_name) {
+  row <- events_df %>%
+    dplyr::filter(
+      player.name == !!player_name | player_display_name == !!player_name
+    ) %>%
+    dplyr::slice(1)
+
+  if (nrow(row) == 0) {
+    stop("Player not found in match events: ", player_name, call. = FALSE)
+  }
+
+  label <- player_display_label(events_df, player_id = row$player.id)
+  list(
+    player.id = row$player.id,
+    player.name = row$player.name,
+    player_label = label,
+    slug = figure_slug(label)
+  )
 }

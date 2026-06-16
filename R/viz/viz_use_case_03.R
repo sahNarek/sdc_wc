@@ -50,7 +50,7 @@ viz_player_shots_per90 <- function(events_df,
                                    match_id = NULL,
                                    min_minutes = 45,
                                    top_n = 10,
-                                   title = "Shots per 90 minutes",
+                                   title = NULL,
                                    subtitle = NULL,
                                    team_labels = NULL) {
   chart_df <- compute_player_shots_per90(
@@ -66,7 +66,7 @@ viz_player_shots_per90 <- function(events_df,
     geom_col(width = 0.6) +
     scale_fill_sdc() +
     labs(
-      title = title,
+      title = title %||% "Shots per 90 minutes",
       subtitle = subtitle,
       x = NULL,
       y = "Shots per 90 minutes",

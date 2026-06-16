@@ -5,8 +5,11 @@ viz_shot_map <- function(events_df,
                          match_id = NULL,
                          title = NULL,
                          subtitle = NULL,
+                         title_suffix = "shot map",
                          exclude_penalties = TRUE,
                          shot_color = SDC_PALETTE[["blue"]],
+                         lightest_color = NULL,
+                         gradient_colors = NULL,
                          xg_limits = c(0, 0.8),
                          marker_size = 5) {
   data <- filter_shot_map_data(
@@ -18,7 +21,12 @@ viz_shot_map <- function(events_df,
   )
 
   label <- coalesce(data$player_display_name[1], data$player.name[1])
-  shot_colors <- palette_single_gradient(color = shot_color, n = 9, lightest = "#EAF3FA")
+  shot_colors <- resolve_single_hue_gradient(
+    color = shot_color,
+    lightest_color = lightest_color,
+    gradient_colors = gradient_colors,
+    n = 9
+  )
 
   ggplot() +
     draw_pitch_half_attacking() +
@@ -54,7 +62,7 @@ viz_shot_map <- function(events_df,
       shape = guide_legend(override.aes = list(size = marker_size, fill = "#333333"))
     ) +
     labs(
-      title = title %||% paste0(label, ": shot map"),
+      title = title %||% player_chart_title(label, title_suffix),
       subtitle = subtitle,
       x = NULL,
       y = NULL,
@@ -75,9 +83,12 @@ viz_shot_map_icons <- function(events_df,
                                match_id = NULL,
                                title = NULL,
                                subtitle = NULL,
+                               title_suffix = "shot map",
                                exclude_penalties = TRUE,
                                shot_color = SDC_PALETTE[["blue"]],
-                               icon_size = 0.048,
+                               lightest_color = NULL,
+                               gradient_colors = NULL,
+                               icon_size = 0.058,
                                xg_limits = c(0, 0.8),
                                icon_set = "footprint") {
   if (!requireNamespace("ggimage", quietly = TRUE)) {
@@ -95,11 +106,18 @@ viz_shot_map_icons <- function(events_df,
   )
 
   label <- coalesce(data$player_display_name[1], data$player.name[1])
-  shot_colors <- palette_single_gradient(color = shot_color, n = 11, lightest = "#EAF3FA")
+  shot_colors <- resolve_single_hue_gradient(
+    color = shot_color,
+    lightest_color = lightest_color,
+    gradient_colors = gradient_colors,
+    n = 11
+  )
 
   data <- data %>%
     add_colored_shot_icons(
       shot_color = shot_color,
+      lightest_color = lightest_color,
+      gradient_colors = gradient_colors,
       limits = xg_limits,
       icon_set = icon_set
     )
@@ -133,7 +151,7 @@ viz_shot_map_icons <- function(events_df,
       fill = guide_colourbar(title.position = "top")
     ) +
     labs(
-      title = title %||% paste0(label, ": shot map"),
+      title = title %||% player_chart_title(label, title_suffix),
       subtitle = subtitle,
       x = NULL,
       y = NULL,
@@ -146,7 +164,7 @@ viz_shot_map_icons <- function(events_df,
       axis.title = element_blank()
     )
 
-  assemble_shot_map(main_plot, icon_set = icon_set)
+  assemble_shot_map(main_plot, icon_set = icon_set, icon_color = shot_color)
 }
 
 #' Shared shot filtering for UC7 variants
@@ -204,6 +222,40 @@ top_goal_scorer <- function(events_df, match_id = NULL, team_name = NULL) {
   }
 
   data %>%
-    count(player.name, player.id, sort = TRUE) %>%
-    slice(1)
+    dplyr::count(player.name, player.id, sort = TRUE) %>%
+    dplyr::slice(1) %>%
+    dplyr::mutate(
+      player_label = player_display_label(events_df, player_id = player.id)
+    )
+}
+
+#' Pick player with the most left-foot shots (for icon shot-map examples)
+top_left_foot_shooter <- function(events_df, match_id = NULL, team_name = NULL) {
+  data <- events_df %>%
+    filter(
+      type.name == "Shot",
+      shot.body_part.name == "Left Foot",
+      shot.type.name != "Penalty" | is.na(shot.type.name),
+      location.x >= 85,
+      location.x <= 120
+    )
+
+  if (!is.null(match_id)) {
+    data <- data %>% filter(match_id == !!match_id)
+  }
+
+  if (!is.null(team_name)) {
+    data <- data %>% filter(team.name == team_name)
+  }
+
+  if (nrow(data) == 0) {
+    stop("No left-foot shots found in the attacking third.", call. = FALSE)
+  }
+
+  data %>%
+    dplyr::count(player.name, player.id, sort = TRUE) %>%
+    dplyr::slice(1) %>%
+    dplyr::mutate(
+      player_label = player_display_label(events_df, player_id = player.id)
+    )
 }

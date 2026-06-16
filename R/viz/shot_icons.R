@@ -158,9 +158,16 @@ colored_body_part_icon_path <- function(body_part,
 #' Add per-shot coloured icon paths to shot data
 add_colored_shot_icons <- function(shots_df,
                                    shot_color = SDC_PALETTE[["blue"]],
+                                   lightest_color = NULL,
+                                   gradient_colors = NULL,
                                    limits = c(0, 0.8),
                                    icon_set = "footprint") {
-  colors <- palette_single_gradient(color = shot_color, n = 11, lightest = "#EAF3FA")
+  colors <- resolve_single_hue_gradient(
+    color = shot_color,
+    lightest_color = lightest_color,
+    gradient_colors = gradient_colors,
+    n = 11
+  )
 
   shots_df %>%
     mutate(
@@ -221,11 +228,13 @@ plot_body_part_legend <- function(icon_color = SDC_PALETTE[["blue"]],
 }
 
 #' Combine shot map with icon legend
-assemble_shot_map <- function(shot_plot, icon_set = "footprint") {
+assemble_shot_map <- function(shot_plot,
+                              icon_set = "footprint",
+                              icon_color = SDC_PALETTE[["blue"]]) {
   if (!requireNamespace("patchwork", quietly = TRUE)) {
     install.packages("patchwork", repos = "https://cloud.r-project.org")
   }
 
-  legend <- plot_body_part_legend(icon_set = icon_set)
+  legend <- plot_body_part_legend(icon_set = icon_set, icon_color = icon_color)
   patchwork::wrap_plots(shot_plot, legend, ncol = 1, heights = c(1, 0.1))
 }

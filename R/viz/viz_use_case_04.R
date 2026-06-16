@@ -4,6 +4,7 @@ viz_player_pass_map <- function(events_df,
                                 match_id = NULL,
                                 title = NULL,
                                 subtitle = NULL,
+                                title_suffix = "completed passes into the penalty area",
                                 pass_color = SDC_PALETTE[["blue"]],
                                 box_only = TRUE) {
   data <- events_df %>%
@@ -47,7 +48,7 @@ viz_player_pass_map <- function(events_df,
       arrow = arrow(length = unit(0.07, "inches"), ends = "last", type = "open")
     ) +
     labs(
-      title = title %||% paste0(player_label, ": completed passes into the penalty area"),
+      title = title %||% player_chart_title(player_label, title_suffix),
       subtitle = subtitle,
       x = NULL,
       y = NULL,

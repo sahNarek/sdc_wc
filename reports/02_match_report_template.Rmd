@@ -17,6 +17,11 @@ params:
   away_team: "Curacao"
   home_color: "#1F77B4"
   away_color: "#FF7F0E"
+  # Optional: override default chart titles (see default_chart_titles() in R/viz/viz_theme.R)
+  chart_titles: null
+  # Featured players for icon shot maps (change per match)
+  featured_icon_player: "Jamal Musiala"
+  featured_left_foot_player: null
 ---
 
 ```{r setup, include=FALSE}
@@ -73,11 +78,8 @@ team_labels <- team_display_map(
   meta$display_away
 )
 
-subtitle <- paste0(
-  meta$competition_name, " ", meta$season_name,
-  " | ", meta$display_home, " ", meta$home_score, "–", meta$away_score, " ", meta$display_away,
-  " | ", meta$stadium
-)
+subtitle <- match_chart_subtitle(meta)
+chart_titles <- resolve_chart_titles(meta, params$chart_titles)
 ```
 
 # `r meta$display_home` `r meta$home_score`–`r meta$away_score` `r meta$display_away`
@@ -92,7 +94,7 @@ shots_goals <- compute_team_shots_goals(events, match_id = match_id)
 p1 <- viz_team_shots_goals(
   events,
   match_id = match_id,
-  title = paste("Shots and goals:", meta$display_home, "vs", meta$display_away),
+  title = chart_titles$shots_goals,
   subtitle = subtitle,
   team_labels = team_labels
 )
@@ -107,7 +109,7 @@ save_figure(
 ```{r uc2}
 p2 <- viz_team_shots_bar(
   shots_goals,
-  title = paste("Total shots:", meta$display_home, "vs", meta$display_away),
+  title = chart_titles$shots_bar,
   subtitle = subtitle,
   fill_colors = team_colors,
   team_labels = team_labels
@@ -129,7 +131,7 @@ p3 <- viz_player_shots_per90(
   match_id = match_id,
   min_minutes = 30,
   top_n = 10,
-  title = "Shots per 90 minutes",
+  title = chart_titles$shots_per90,
   subtitle = subtitle,
   team_labels = team_labels
 )
@@ -153,6 +155,10 @@ p4 <- viz_player_pass_map(
   events,
   player_id = top_passer$player.id,
   match_id = match_id,
+  title = player_chart_title(
+    player_display_label(events, player_id = top_passer$player.id),
+    chart_titles$pass_map_suffix
+  ),
   subtitle = subtitle,
   box_only = TRUE
 )
@@ -173,6 +179,7 @@ p5 <- viz_xg_xga_contribution(
   match_id = match_id,
   min_minutes = 30,
   top_n = 12,
+  title = chart_titles$xg_contribution,
   subtitle = subtitle
 )
 print(p5)
@@ -185,57 +192,124 @@ save_figure(
 
 ## Defensive action heatmaps
 
-```{r uc6}
-p6 <- viz_defensive_heatmap(
-  events,
-  match_id = match_id,
-  title = paste("Where teams defend:", meta$display_home, "vs", meta$display_away),
-  subtitle = subtitle,
-  team_labels = team_labels
-)
-print(p6)
-save_figure(
-  p6,
-  file.path(fig_dir, paste0("Defensive_Heatmap_", slug, ".png")),
-  format = "16_9"
-)
+```{r uc6, fig.height=5.2}
+iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+  p6 <- viz_defensive_heatmap(
+    events,
+    match_id = match_id,
+    title = paste(chart_titles$defensive_heatmap, paste0("(", color_name, ")")),
+    subtitle = subtitle,
+    team_labels = team_labels,
+    heat_color = color_hex
+  )
+  print(p6)
+  save_figure(
+    p6,
+    file.path(fig_dir, paste0("Defensive_Heatmap_", slug, "_", color_name, ".png")),
+    format = "16_9"
+  )
+})
 ```
 
 ## Shot map — top goal scorer
 
-```{r uc7}
+```{r uc7, fig.height=7}
 scorer <- top_goal_scorer(events, match_id = match_id, team_name = meta$home_team)
 
-p7 <- viz_shot_map(
-  events,
-  player_id = scorer$player.id,
-  match_id = match_id,
-  subtitle = subtitle
-)
-print(p7)
-save_figure(
-  p7,
-  file.path(fig_dir, paste0("Shot_Map_", slug, ".png")),
-  format = "1_1"
-)
+iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+  p7 <- viz_shot_map(
+    events,
+    player_id = scorer$player.id,
+    match_id = match_id,
+    title = player_chart_title(scorer$player_label, chart_titles$shot_map_suffix),
+    subtitle = subtitle,
+    shot_color = color_hex
+  )
+  print(p7)
+  save_figure(
+    p7,
+    file.path(fig_dir, paste0("Shot_Map_", slug, "_", color_name, ".png")),
+    format = "1_1"
+  )
+})
 ```
 
 ## Shot map — body-part icons
 
-```{r uc7-icons}
-p7_icons <- viz_shot_map_icons(
-  events,
-  player_id = scorer$player.id,
-  match_id = match_id,
-  subtitle = subtitle,
-  icon_set = "footprint"
-)
-print(p7_icons)
-save_figure(
-  p7_icons,
-  file.path(fig_dir, paste0("Shot_Map_Icons_", slug, ".png")),
-  format = "1_1"
-)
+```{r uc7-icons-setup, include=FALSE}
+featured_player <- resolve_featured_player(events, params$featured_icon_player)
+
+if (!is.null(params$featured_left_foot_player)) {
+  left_foot_player <- resolve_featured_player(events, params$featured_left_foot_player)
+} else {
+  left_foot_shooter <- top_left_foot_shooter(
+    events,
+    match_id = match_id,
+    team_name = meta$home_team
+  )
+  left_foot_player <- list(
+    player.id = left_foot_shooter$player.id,
+    player.name = left_foot_shooter$player.name,
+    player_label = left_foot_shooter$player_label,
+    slug = figure_slug(left_foot_shooter$player_label)
+  )
+}
+```
+
+### `r featured_player$player_label`
+
+```{r uc7-icons-musiala, fig.height=7}
+iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+  p7_icons <- viz_shot_map_icons(
+    events,
+    player_id = featured_player$player.id,
+    match_id = match_id,
+    title = player_chart_title(
+      featured_player$player_label,
+      chart_titles$shot_map_suffix
+    ),
+    subtitle = subtitle,
+    icon_set = "footprint",
+    shot_color = color_hex
+  )
+  print(p7_icons)
+  save_figure(
+    p7_icons,
+    file.path(
+      fig_dir,
+      paste0("Shot_Map_Icons_", featured_player$slug, "_", color_name, ".png")
+    ),
+    format = "1_1"
+  )
+})
+```
+
+### `r left_foot_player$player_label` — left foot
+
+```{r uc7-icons-left-foot, fig.height=7}
+iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+  p7_icons <- viz_shot_map_icons(
+    events,
+    player_id = left_foot_player$player.id,
+    match_id = match_id,
+    title = player_chart_title(
+      left_foot_player$player_label,
+      chart_titles$shot_map_left_foot_suffix
+    ),
+    subtitle = subtitle,
+    icon_set = "footprint",
+    shot_color = color_hex
+  )
+  print(p7_icons)
+  save_figure(
+    p7_icons,
+    file.path(
+      fig_dir,
+      paste0("Shot_Map_Icons_", left_foot_player$slug, "_", color_name, ".png")
+    ),
+    format = "1_1"
+  )
+})
 ```
 
 ---

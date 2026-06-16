@@ -29,6 +29,9 @@ reports/*.knit.md
 .cache/
 *.zip
 
+# --- Secrets (Docker / API) ---
+.env
+
 # --- OS ---
 .DS_Store
 Thumbs.db

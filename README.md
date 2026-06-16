@@ -11,14 +11,16 @@ R project for **El Mundial de los Datos** (Sports Data Campus). It reads StatsBo
 
 1. [System overview](#system-overview)
 2. [Prerequisites](#prerequisites)
-3. [Project structure](#project-structure)
-4. [Quick start](#quick-start)
-5. [Workflow step by step](#workflow-step-by-step)
-6. [Adding new match data](#adding-new-match-data)
-7. [Configuration](#configuration)
-8. [Visualizations](#visualizations)
-9. [Styling & export rules](#styling--export-rules)
-10. [Troubleshooting](#troubleshooting)
+3. [Local setup](#local-setup)
+4. [Project structure](#project-structure)
+5. [Quick start](#quick-start)
+6. [Workflow step by step](#workflow-step-by-step)
+7. [Adding new match data](#adding-new-match-data)
+8. [Configuration](#configuration)
+9. [Visualizations](#visualizations)
+10. [Styling & export rules](#styling--export-rules)
+11. [Troubleshooting](#troubleshooting)
+12. [Roadmap](#roadmap)
 
 ---
 
@@ -50,13 +52,78 @@ JSON files (data_sample/)
 
 ## Prerequisites
 
-- **R** ≥ 4.2 (recommended: latest stable)
-- **RStudio** (optional but recommended — open `sdc_wc.Rproj`)
-- Internet on first run (installs R packages and Google Fonts)
+### Required software
 
-Packages are installed automatically on first `load_project()`:
+| Requirement | Version | Notes |
+|-------------|---------|--------|
+| **R** | ≥ 4.2 | [CRAN](https://cran.r-project.org/) or [rig](https://github.com/r-lib/rig) on macOS |
+| **Internet** | — | First run installs CRAN packages, Google Fonts, and (optionally) TinyTeX |
 
-`tidyverse`, `jsonlite`, `yaml`, `scales`, `grid`, `showtext`, `sysfonts`, `rmarkdown`
+### Recommended (optional)
+
+| Tool | Purpose |
+|------|---------|
+| **RStudio** | Open `sdc_wc.Rproj` for interactive work |
+| **pandoc** | Usually bundled with RStudio / `rmarkdown`; needed for HTML/PDF |
+| **TinyTeX** | PDF reports — installed automatically via `setup_local.R --pdf` |
+
+### System libraries (OS package manager)
+
+Needed for shot-map icons (`magick`, `rsvg`). The setup script checks for these; install if icon rendering fails.
+
+**macOS (Homebrew):**
+
+```bash
+brew install imagemagick librsvg
+```
+
+**Ubuntu / Debian:**
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libmagick++-dev librsvg2-dev libcurl4-openssl-dev libssl-dev libxml2-dev
+```
+
+**Windows:** Install [Rtools](https://cran.r-project.org/bin/windows/Rtools/) and [ImageMagick](https://imagemagick.org/script/download.php#windows); `magick` and `rsvg` CRAN binaries usually work without extra steps.
+
+### R packages (installed automatically)
+
+Core: `tidyverse`, `jsonlite`, `yaml`, `scales`, `grid`, `showtext`, `sysfonts`, `rmarkdown`
+
+Visualizations: `ggimage`, `rsvg`, `patchwork`, `magick`
+
+PDF: `tinytex` (optional, via `--pdf` flag)
+
+### Match data (not in git)
+
+You must provide `data_sample/` locally with StatsBomb JSON. See [Adding new match data](#adding-new-match-data).
+
+---
+
+## Local setup
+
+Run once on a new machine (or after cloning):
+
+```bash
+cd sdc_wc
+
+# Install R packages, create folders, rasterise shot icons
+Rscript scripts/setup_local.R
+
+# Include TinyTeX if you need PDF reports
+Rscript scripts/setup_local.R --pdf
+
+# Verify packages only (no installs)
+Rscript scripts/setup_local.R --check
+```
+
+**Full pipeline** (setup → build → report) in one command:
+
+```bash
+Rscript scripts/run_all.R                  # match 4036731, HTML
+Rscript scripts/run_all.R 4036731 both   # HTML + PDF (needs --pdf setup)
+Rscript scripts/run_all.R 4036731 html --skip-setup   # skip setup if already done
+```
 
 ---
 
@@ -73,7 +140,8 @@ sdc_wc/
 │   ├── seasons/                 # Season-level metadata
 │   └── competitions/
 ├── docs/
-│   └── data_dictionary.md       # JSON schemas & join keys
+│   ├── data_dictionary.md       # JSON schemas & join keys
+│   └── TODO_DOCKER.md           # Roadmap: Docker + credentials
 ├── R/
 │   ├── 01_paths.R               # Project paths & config loader
 │   ├── 02_io_json.R             # Read JSON, resolve versions
@@ -93,9 +161,13 @@ sdc_wc/
 │   ├── 01_build_data.Rmd        # Build & validate .rda
 │   └── 02_match_report_template.Rmd
 ├── scripts/
+│   ├── setup_local.R            # One-time local environment setup
+│   ├── run_all.R                # setup + build + report (full pipeline)
 │   ├── run_build.R              # CLI: build data
-│   └── run_report.R             # CLI: knit report (html | pdf | both)
+│   ├── run_report.R             # CLI: knit report (html | pdf | both)
+│   └── build_shot_icons.R       # Rebuild footprint PNGs from SVG
 ├── output/                      # Generated reports & figures (gitignored)
+├── .env.example                 # Template for API / pipeline env vars
 ├── game_ids.csv                 # Match schedule & StatsBomb IDs
 ├── sdc_wc.Rproj
 └── README.md
@@ -109,14 +181,28 @@ sdc_wc/
 
 Raw JSON is **not** in git. Copy your `data_sample/` folder into the project root (see [Adding new match data](#adding-new-match-data)).
 
-### 2. Build the dataset
+### 2. Set up the environment
 
 ```bash
 cd sdc_wc
+Rscript scripts/setup_local.R --pdf
+```
+
+### 3. Build the dataset
+
+```bash
 Rscript scripts/run_build.R
 ```
 
-### 3. Generate report and figures
+### 4. Generate report and figures
+
+Or use the all-in-one script:
+
+```bash
+Rscript scripts/run_all.R 4036731 both
+```
+
+Individual steps:
 
 ```bash
 # HTML (default)
@@ -129,7 +215,7 @@ Rscript scripts/run_report.R 4036731 pdf
 Rscript scripts/run_report.R 4036731 both
 ```
 
-### 4. Open outputs
+### 5. Open outputs
 
 - HTML report: `output/reports/02_match_report_template.html`
 - PDF report: `output/reports/02_match_report_template.pdf`
@@ -365,6 +451,22 @@ assigned:
 - `assigned` — your tournament matches; set `status: available` when JSON is on disk.
 - Missing IDs are skipped with a message, not an error.
 
+### Chart titles and featured players
+
+Report params in `reports/02_match_report_template.Rmd` control titles per match:
+
+```yaml
+params:
+  match_id: 4036737
+  chart_titles:
+    shots_per90: "Disparos por 90 minutos"
+    shot_map_left_foot_suffix: "mapa de tiros (pie izquierdo)"
+  featured_icon_player: "Lionel Messi"
+  featured_left_foot_player: null   # null = auto-pick top left-foot shooter
+```
+
+Defaults are built from match metadata via `default_chart_titles(meta)` in `R/viz/viz_theme.R`. Every `viz_*()` function accepts `title` and `subtitle`; player charts also accept `title_suffix`.
+
 ---
 
 ## Visualizations
@@ -378,10 +480,13 @@ Functions follow **Working-with-R.pdf** (StatsBomb guide). All accept `events_df
 | 3 | `viz_player_shots_per90()` | Top shooters per 90 minutes |
 | 4 | `viz_player_pass_map()` | Completed passes into the penalty area |
 | 5 | `viz_xg_xga_contribution()` | Stacked non-penalty xG + xG assisted per 90 |
-| 6 | `viz_defensive_heatmap()` | Zone heatmap (share of defensive actions) |
-| 7 | `viz_shot_map()` | Shot map coloured by xG |
+| 6 | `viz_defensive_heatmap()` | Zone heatmap — single-hue gradient; `heat_color` configurable |
+| 7 | `viz_shot_map()` | Shot map (ggplot shapes) — `shot_color` configurable |
+| 7b | `viz_shot_map_icons()` | Shot map (footprint/head SVG icons) — `shot_color` configurable |
 
-Helper functions: `compute_*()` variants return dataframes; `top_goal_scorer()`, `save_figure()`, `figure_slug()`.
+Reports export **six palette variants** per single-hue chart (Blue, Orange, Green, Red, Purple, Cyan), e.g. `Shot_Map_Icons_Musiala_Green.png`.
+
+Helper functions: `compute_*()` variants return dataframes; `top_goal_scorer()`, `top_left_foot_shooter()`, `iterate_sdc_palette()`, `save_figure()`, `figure_slug()`.
 
 ---
 
@@ -405,7 +510,7 @@ Follows **Style Guide for Articles and Social Media**:
 | Purple | `#9467BD` |
 | Cyan | `#17BECF` |
 
-Heatmaps use a **single-hue blue gradient** (light → dark). Labels are human-readable — no raw variable names in charts.
+Heatmaps and shot maps use a **single-hue gradient** (light tint → base colour). Pass any SDC palette hex via `heat_color` / `shot_color`, or use `iterate_sdc_palette()` to export all six variants.
 
 **Export dimensions** (`save_figure(..., format = ...)`):
 
@@ -427,10 +532,17 @@ File names use descriptive slugs, e.g. `Defensive_Heatmap_Germany_vs_Curacao.png
 | `No data for match X` in report | Run `build_all_matches()` and ensure ID is in `sample_match_ids`. |
 | Fonts look wrong | Run `load_project()` — needs internet once for Google Fonts. |
 | Heatmap is solid colour | Ensure you are on latest `R/viz/viz_use_case_06.R` (uses `geom_rect`, not `geom_bin2d`). |
-| Package missing | `source("R/viz/00_packages.R")` or re-run `load_project()`. |
-| PDF render fails | Run `tinytex::install_tinytex()` once, then `Rscript scripts/run_report.R 4036731 pdf`. |
+| Package missing | `Rscript scripts/setup_local.R` |
+| PDF render fails | `Rscript scripts/setup_local.R --pdf`, then retry report |
+| Icon shot map broken | Install ImageMagick + librsvg (see [Prerequisites](#prerequisites)); run `setup_local.R` |
 
 For JSON field definitions see `docs/data_dictionary.md`.
+
+---
+
+## Roadmap
+
+- **Docker** — containerised pipeline with mounted `data_sample/`, env-based credentials, and one-command reports. See [`docs/TODO_DOCKER.md`](docs/TODO_DOCKER.md).
 
 ---
 

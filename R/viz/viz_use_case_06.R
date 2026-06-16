@@ -55,7 +55,9 @@ viz_defensive_heatmap <- function(events_df,
                                   team_name = NULL,
                                   bin_width = 20,
                                   heat_color = SDC_PALETTE[["blue"]],
-                                  title = "Where teams defend",
+                                  lightest_color = NULL,
+                                  gradient_colors = NULL,
+                                  title = NULL,
                                   subtitle = NULL,
                                   team_labels = NULL) {
   heatmap_df <- compute_defensive_heatmap(
@@ -74,10 +76,11 @@ viz_defensive_heatmap <- function(events_df,
     stop("No defensive events found for the selected match.", call. = FALSE)
   }
 
-  heat_colors <- palette_single_gradient(
+  heat_colors <- resolve_single_hue_gradient(
     color = heat_color,
-    n = 9,
-    lightest = "#EAF3FA"
+    lightest_color = lightest_color,
+    gradient_colors = gradient_colors,
+    n = 9
   )
 
   ggplot(heatmap_df) +
@@ -104,7 +107,7 @@ viz_defensive_heatmap <- function(events_df,
     scale_y_reverse(limits = c(80, 0), expand = c(0, 0)) +
     coord_fixed(ratio = 105 / 100) +
     labs(
-      title = title,
+      title = title %||% "Where teams defend",
       subtitle = subtitle,
       x = NULL,
       y = NULL,

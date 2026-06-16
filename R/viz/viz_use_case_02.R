@@ -1,6 +1,6 @@
 #' UC2: Horizontal bar chart from aggregated team stats
 viz_team_shots_bar <- function(shots_goals_df,
-                               title = "Shots by team",
+                               title = NULL,
                                subtitle = NULL,
                                fill_colors = NULL,
                                team_labels = NULL) {
@@ -23,7 +23,7 @@ viz_team_shots_bar <- function(shots_goals_df,
     geom_col(width = 0.5, show.legend = FALSE) +
     scale_fill_manual(values = fill_colors) +
     labs(
-      title = title,
+      title = title %||% "Shots by team",
       subtitle = subtitle,
       x = NULL,
       y = "Total shots"
