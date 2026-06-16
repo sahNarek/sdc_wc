@@ -2,14 +2,21 @@
 viz_team_shots_bar <- function(shots_goals_df,
                                title = "Shots by team",
                                subtitle = NULL,
-                               fill_colors = NULL) {
+                               fill_colors = NULL,
+                               team_labels = NULL) {
   chart_df <- shots_goals_df
   if ("team.name" %in% names(chart_df) && !"Team" %in% names(chart_df)) {
     chart_df <- chart_df %>% rename(Team = team.name)
   }
+  chart_df <- apply_team_display_labels(chart_df, name_map = team_labels)
 
   if (is.null(fill_colors)) {
     fill_colors <- setNames(SDC_PALETTE_VEC[seq_len(nrow(chart_df))], chart_df$Team)
+  } else if (!is.null(team_labels)) {
+    fill_colors <- setNames(
+      unname(fill_colors[names(team_labels)]),
+      unname(team_labels[names(team_labels)])
+    )
   }
 
   ggplot(chart_df, aes(x = reorder(Team, shots), y = shots, fill = Team)) +

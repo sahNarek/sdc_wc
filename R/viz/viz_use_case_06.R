@@ -56,22 +56,29 @@ viz_defensive_heatmap <- function(events_df,
                                   bin_width = 20,
                                   heat_color = SDC_PALETTE[["blue"]],
                                   title = "Where teams defend",
-                                  subtitle = NULL) {
+                                  subtitle = NULL,
+                                  team_labels = NULL) {
   heatmap_df <- compute_defensive_heatmap(
     events_df,
     match_id = match_id,
     bin_width = bin_width
-  )
+  ) %>%
+    apply_team_display_labels(name_map = team_labels)
 
   if (!is.null(team_name)) {
-    heatmap_df <- heatmap_df %>% filter(Team == team_name)
+    team_filter <- team_labels[[team_name]] %||% team_name
+    heatmap_df <- heatmap_df %>% filter(Team == team_filter)
   }
 
   if (nrow(heatmap_df) == 0) {
     stop("No defensive events found for the selected match.", call. = FALSE)
   }
 
-  heat_colors <- palette_single_gradient(color = heat_color, n = 9)
+  heat_colors <- palette_single_gradient(
+    color = heat_color,
+    n = 9,
+    lightest = "#EAF3FA"
+  )
 
   ggplot(heatmap_df) +
     geom_rect(
@@ -90,7 +97,8 @@ viz_defensive_heatmap <- function(events_df,
       colours = heat_colors,
       labels = scales::percent_format(accuracy = 1),
       name = "Share of defensive\nactions",
-      limits = c(0, NA)
+      limits = c(0, NA),
+      oob = scales::squish
     ) +
     scale_x_continuous(limits = c(0, 120), expand = c(0, 0)) +
     scale_y_reverse(limits = c(80, 0), expand = c(0, 0)) +
@@ -98,6 +106,8 @@ viz_defensive_heatmap <- function(events_df,
     labs(
       title = title,
       subtitle = subtitle,
+      x = NULL,
+      y = NULL,
       caption = "Includes pressures, tackles, interceptions, blocks and fouls committed."
     ) +
     facet_wrap(~Team) +
@@ -105,6 +115,7 @@ viz_defensive_heatmap <- function(events_df,
     theme(
       axis.text = element_blank(),
       axis.title = element_blank(),
-      panel.spacing = unit(1.2, "lines")
+      panel.spacing = unit(1.2, "lines"),
+      legend.position = "bottom"
     )
 }

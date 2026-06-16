@@ -162,3 +162,20 @@ team_colors_default <- function(home_team, away_team) {
     c(home_team, away_team)
   )
 }
+
+#' Map StatsBomb team names to report display labels (e.g. Germany -> Alemania)
+team_display_map <- function(home_team, away_team, display_home, display_away) {
+  stats <- c(home_team, away_team)
+  labels <- c(display_home, display_away)
+  setNames(labels, stats)
+}
+
+#' Replace internal team names with display labels in a data frame column
+apply_team_display_labels <- function(df, team_col = "Team", name_map = NULL) {
+  if (is.null(name_map) || !team_col %in% names(df)) {
+    return(df)
+  }
+
+  df[[team_col]] <- dplyr::recode(df[[team_col]], !!!name_map, .default = df[[team_col]])
+  df
+}

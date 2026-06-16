@@ -66,6 +66,12 @@ team_colors <- setNames(
   c(params$home_color, params$away_color),
   c(meta$home_team, meta$away_team)
 )
+team_labels <- team_display_map(
+  meta$home_team,
+  meta$away_team,
+  meta$display_home,
+  meta$display_away
+)
 
 subtitle <- paste0(
   meta$competition_name, " ", meta$season_name,
@@ -86,8 +92,9 @@ shots_goals <- compute_team_shots_goals(events, match_id = match_id)
 p1 <- viz_team_shots_goals(
   events,
   match_id = match_id,
-  title = paste("Shots and goals:", meta$home_team, "vs", meta$away_team),
-  subtitle = subtitle
+  title = paste("Shots and goals:", meta$display_home, "vs", meta$display_away),
+  subtitle = subtitle,
+  team_labels = team_labels
 )
 print(p1)
 save_figure(
@@ -100,9 +107,10 @@ save_figure(
 ```{r uc2}
 p2 <- viz_team_shots_bar(
   shots_goals,
-  title = paste("Total shots:", meta$home_team, "vs", meta$away_team),
+  title = paste("Total shots:", meta$display_home, "vs", meta$display_away),
   subtitle = subtitle,
-  fill_colors = team_colors
+  fill_colors = team_colors,
+  team_labels = team_labels
 )
 print(p2)
 save_figure(
@@ -122,7 +130,8 @@ p3 <- viz_player_shots_per90(
   min_minutes = 30,
   top_n = 10,
   title = "Shots per 90 minutes",
-  subtitle = subtitle
+  subtitle = subtitle,
+  team_labels = team_labels
 )
 print(p3)
 save_figure(
@@ -180,8 +189,9 @@ save_figure(
 p6 <- viz_defensive_heatmap(
   events,
   match_id = match_id,
-  title = paste("Where teams defend:", meta$home_team, "vs", meta$away_team),
-  subtitle = subtitle
+  title = paste("Where teams defend:", meta$display_home, "vs", meta$display_away),
+  subtitle = subtitle,
+  team_labels = team_labels
 )
 print(p6)
 save_figure(
@@ -206,6 +216,24 @@ print(p7)
 save_figure(
   p7,
   file.path(fig_dir, paste0("Shot_Map_", slug, ".png")),
+  format = "1_1"
+)
+```
+
+## Shot map — body-part icons
+
+```{r uc7-icons}
+p7_icons <- viz_shot_map_icons(
+  events,
+  player_id = scorer$player.id,
+  match_id = match_id,
+  subtitle = subtitle,
+  icon_set = "footprint"
+)
+print(p7_icons)
+save_figure(
+  p7_icons,
+  file.path(fig_dir, paste0("Shot_Map_Icons_", slug, ".png")),
   format = "1_1"
 )
 ```

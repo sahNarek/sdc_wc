@@ -49,6 +49,8 @@ viz_player_pass_map <- function(events_df,
     labs(
       title = title %||% paste0(player_label, ": completed passes into the penalty area"),
       subtitle = subtitle,
+      x = NULL,
+      y = NULL,
       caption = "Arrows show completed passes ending inside the opposition box."
     ) +
     theme_sdc() +

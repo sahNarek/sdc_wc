@@ -5,7 +5,11 @@ required_packages <- c(
   "scales",
   "grid",
   "showtext",
-  "sysfonts"
+  "sysfonts",
+  "ggimage",
+  "rsvg",
+  "patchwork",
+  "magick"
 )
 
 missing_packages <- required_packages[

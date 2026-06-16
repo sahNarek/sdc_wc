@@ -34,12 +34,14 @@ viz_team_shots_goals <- function(events_df,
                                  match_id = NULL,
                                  per_game = FALSE,
                                  title = NULL,
-                                 subtitle = NULL) {
+                                 subtitle = NULL,
+                                 team_labels = NULL) {
   shots_goals <- compute_team_shots_goals(
     events_df,
     match_id = match_id,
     per_game = per_game
-  )
+  ) %>%
+    apply_team_display_labels(name_map = team_labels)
 
   y_label <- if (per_game) "Shots per match" else "Total shots"
 

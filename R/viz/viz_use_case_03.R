@@ -51,13 +51,15 @@ viz_player_shots_per90 <- function(events_df,
                                    min_minutes = 45,
                                    top_n = 10,
                                    title = "Shots per 90 minutes",
-                                   subtitle = NULL) {
+                                   subtitle = NULL,
+                                   team_labels = NULL) {
   chart_df <- compute_player_shots_per90(
     events_df,
     player_match_stats_df = player_match_stats_df,
     match_id = match_id,
     min_minutes = min_minutes
   ) %>%
+    apply_team_display_labels(name_map = team_labels) %>%
     slice_max(shots_per90, n = top_n, with_ties = FALSE)
 
   ggplot(chart_df, aes(x = reorder(Player, shots_per90), y = shots_per90, fill = Team)) +
