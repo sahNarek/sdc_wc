@@ -131,6 +131,11 @@ shot_map_iterate_palette <- if (is.null(params$shot_map_iterate_palette)) {
   isTRUE(params$shot_map_iterate_palette)
 }
 shot_map_icon_set <- params$shot_map_icon_set %||% "footprint"
+goal_net_use_ball_icons <- if (is.null(params$goal_net_use_ball_icons)) {
+  TRUE
+} else {
+  isTRUE(params$goal_net_use_ball_icons)
+}
 
 featured_player <- resolve_featured_player(events, params$featured_icon_player)
 
@@ -147,7 +152,8 @@ render_player_shot_map_goal_net <- function(player_info) {
       subtitle = subtitle,
       shot_color = color_hex,
       show_trajectories = TRUE,
-      icon_set = shot_map_icon_set
+      icon_set = shot_map_icon_set,
+      goal_net_use_ball_icons = goal_net_use_ball_icons
     )
     print(p8)
     suffix <- if (shot_map_iterate_palette) paste0("_", color_name) else ""
@@ -245,7 +251,8 @@ p8_home <- viz_shot_map_goal_net(
   subtitle = subtitle,
   shot_color = team_colors[[meta$home_team]],
   show_trajectories = TRUE,
-  icon_set = shot_map_icon_set
+  icon_set = shot_map_icon_set,
+  goal_net_use_ball_icons = goal_net_use_ball_icons
 )
 print(p8_home)
 save_figure(
@@ -274,7 +281,8 @@ p8_away <- viz_shot_map_goal_net(
   subtitle = subtitle,
   shot_color = team_colors[[meta$away_team]],
   show_trajectories = TRUE,
-  icon_set = shot_map_icon_set
+  icon_set = shot_map_icon_set,
+  goal_net_use_ball_icons = goal_net_use_ball_icons
 )
 print(p8_away)
 save_figure(

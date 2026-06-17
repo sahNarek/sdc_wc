@@ -241,6 +241,58 @@ viz_shot_map_icons <- function(events_df,
   )
 }
 
+#' Outcome colours for dashed shot trajectories on the pitch
+shot_trajectory_outcome_colors <- function() {
+  c(
+    Goal = SDC_PALETTE[["green"]],
+    Saved = SDC_PALETTE[["orange"]],
+    Other = SDC_PALETTE[["red"]]
+  )
+}
+
+#' Map a shot outcome to a trajectory line colour
+shot_trajectory_line_color <- function(outcome) {
+  if (identical(outcome, "Goal")) {
+    return(SDC_PALETTE[["green"]])
+  }
+  if (identical(outcome, "Saved")) {
+    return(SDC_PALETTE[["orange"]])
+  }
+  SDC_PALETTE[["red"]]
+}
+
+#' Add per-shot trajectory line colours
+add_shot_trajectory_colors <- function(data) {
+  data %>%
+    dplyr::mutate(
+      traj_colour = purrr::map_chr(
+        .data$`shot.outcome.name`,
+        shot_trajectory_line_color
+      )
+    )
+}
+
+#' Dashed trajectory segments coloured by shot outcome
+shot_trajectory_layers <- function(data) {
+  traj_data <- add_shot_trajectory_colors(data)
+
+  list(
+    geom_segment(
+      data = traj_data,
+      aes(
+        x = .data$`location.x`,
+        y = .data$`location.y`,
+        xend = .data$traj_xend,
+        yend = .data$traj_yend
+      ),
+      colour = traj_data$traj_colour,
+      linetype = "dashed",
+      linewidth = 0.45,
+      alpha = 0.85
+    )
+  )
+}
+
 #' Body-part icon layers for pitch shot maps (optionally with trajectories)
 build_shot_map_pitch_icon_layers <- function(data,
                                              shot_colors,
@@ -259,21 +311,7 @@ build_shot_map_pitch_icon_layers <- function(data,
   layers <- list()
 
   if (show_trajectories) {
-    layers <- c(layers, list(
-      geom_segment(
-        data = data,
-        aes(
-          x = .data$`location.x`,
-          y = .data$`location.y`,
-          xend = .data$traj_xend,
-          yend = .data$traj_yend
-        ),
-        linetype = "dashed",
-        colour = "#666666",
-        linewidth = 0.35,
-        alpha = 0.65
-      )
-    ))
+    layers <- c(layers, shot_trajectory_layers(data))
   }
 
   layers <- c(layers, list(
@@ -300,21 +338,7 @@ build_shot_map_pitch_layers <- function(data,
   layers <- list()
 
   if (show_trajectories) {
-    layers <- c(layers, list(
-      geom_segment(
-        data = data,
-        aes(
-          x = .data$`location.x`,
-          y = .data$`location.y`,
-          xend = .data$traj_xend,
-          yend = .data$traj_yend
-        ),
-        linetype = "dashed",
-        colour = "#666666",
-        linewidth = 0.35,
-        alpha = 0.65
-      )
-    ))
+    layers <- c(layers, shot_trajectory_layers(data))
   }
 
   c(
@@ -353,6 +377,10 @@ build_shot_map_pitch_layers <- function(data,
 }
 
 #' Add trajectory endpoints for UC8 pitch panel
+#'
+#' On-goal shots extend to the goal line at \code{shot.end_location.y}; others
+#' use the recorded end coordinate. Requires attacking-half pitch coords from
+#' \code{draw_pitch_half_attacking()} (no y-axis reverse).
 add_shot_trajectory_endpoints <- function(data) {
   data %>%
     dplyr::mutate(

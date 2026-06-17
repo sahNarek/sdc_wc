@@ -25,6 +25,7 @@ params:
   shot_map_scope: "full"
   shot_map_iterate_palette: true
   shot_map_icon_set: "footprint"
+  goal_net_use_ball_icons: true
 ---
 
 ```{r setup, include=FALSE}

@@ -193,26 +193,40 @@ compute_shot_summary_stats <- function(data, subject_label = NULL) {
   )
 }
 
-#' Select shots that receive an xG label above the goal-mouth marker
-shots_for_xg_labels <- function(net_data,
-                                show_xg_labels = TRUE,
-                                xg_label_threshold = NULL) {
-  if (!show_xg_labels || nrow(net_data) == 0) {
-    return(net_data[0, , drop = FALSE])
-  }
+#' Compute minute-label positions that clear the ball icon and goal frame
+add_goal_net_minute_label_positions <- function(net_data,
+                                              goal_width_m = GOAL_WIDTH_M,
+                                              goal_height_m = GOAL_HEIGHT_M,
+                                              icon_size = 0.22) {
+  icon_r <- goal_height_m * icon_size * 0.42
+  text_gap <- goal_height_m * 0.07
+  frame_pad <- goal_height_m * 0.05
+  side_pad <- goal_width_m * 0.07
 
-  labelled <- net_data %>%
-    dplyr::filter(!is.na(.data$`shot.statsbomb_xg`))
-
-  if (!is.null(xg_label_threshold)) {
-    labelled <- labelled %>%
-      dplyr::filter(
-        .data$`shot.outcome.name` == "Goal" |
-          .data$`shot.statsbomb_xg` >= xg_label_threshold
+  net_data %>%
+    dplyr::mutate(
+      .above_y = .data$net_y + .env$icon_r + .env$text_gap,
+      .below_y = .data$net_y - .env$icon_r - .env$text_gap,
+      label_y = dplyr::case_when(
+        .data$.above_y > .env$goal_height_m - .env$frame_pad ~
+          .env$goal_height_m + .env$text_gap * 1.35,
+        .data$net_y < .env$icon_r + .env$frame_pad ~ .data$.above_y,
+        TRUE ~ .data$.above_y
+      ),
+      label_vjust = 0,
+      label_x = dplyr::case_when(
+        .data$net_x < .env$side_pad ~ .data$net_x + .env$side_pad * 0.85,
+        .data$net_x > .env$goal_width_m - .env$side_pad ~
+          .data$net_x - .env$side_pad * 0.85,
+        TRUE ~ .data$net_x
+      ),
+      label_hjust = dplyr::case_when(
+        .data$net_x < .env$side_pad ~ 0,
+        .data$net_x > .env$goal_width_m - .env$side_pad ~ 1,
+        TRUE ~ 0.5
       )
-  }
-
-  labelled
+    ) %>%
+    dplyr::select(-dplyr::starts_with("."))
 }
 
 #' UC8: Combined shot map (pitch + trajectories) and goal-mouth panel
@@ -234,19 +248,20 @@ viz_shot_map_goal_net <- function(events_df,
                                   goal_width_m = GOAL_WIDTH_M,
                                   goal_height_m = GOAL_HEIGHT_M,
                                   goal_shape_by = c("binary", "outcome"),
-                                  show_xg_labels = TRUE,
+                                  show_minute_labels = TRUE,
                                   show_trajectories = TRUE,
                                   show_summary = TRUE,
                                   net_outcomes = c("Goal", "Saved", "Off T"),
                                   xg_limits = c(0, 0.8),
-                                  xg_label_threshold = NULL,
                                   outcome_colors = NULL,
                                   goal_panel_width_frac = 0.54,
-                                  goal_section_height = 0.40,
+                                  goal_section_height = 0.43,
                                   goal_display_tallness = 2.35,
                                   marker_size = 4.5,
                                   icon_size = 0.095,
                                   icon_set = "footprint",
+                                  goal_net_use_ball_icons = TRUE,
+                                  goal_net_icon_size = 0.22,
                                   team_labels = NULL,
                                   display_home = NULL,
                                   display_away = NULL) {
@@ -316,6 +331,11 @@ viz_shot_map_goal_net <- function(events_df,
       )
     )
 
+  if (isTRUE(goal_net_use_ball_icons)) {
+    ensure_ball_icon()
+    net_data <- add_goal_net_ball_icons(net_data)
+  }
+
   goal_layout <- goal_panel_layout(
     goal_width_m = goal_width_m,
     goal_height_m = goal_height_m,
@@ -329,22 +349,43 @@ viz_shot_map_goal_net <- function(events_df,
       width_m = goal_width_m,
       height_m = goal_height_m,
       bg_svg = goal_net_bg_svg
-    ) +
-    geom_point(
-      data = net_data,
-      aes(
-        x = .data$net_x,
-        y = .data$net_y,
-        shape = .data$goal_shape,
-        alpha = .data$marker_alpha
-      ),
-      fill = net_data$marker_fill,
-      size = goal_marker_size,
-      colour = "#222222",
-      stroke = 0.35
-    ) +
-    scale_shape_manual(values = goal_shape_values, guide = "none") +
-    scale_alpha_identity() +
+    )
+
+  if (isTRUE(goal_net_use_ball_icons)) {
+    if (!requireNamespace("ggimage", quietly = TRUE)) {
+      install.packages("ggimage", repos = "https://cloud.r-project.org")
+    }
+
+    goal_plot <- goal_plot +
+      ggimage::geom_image(
+        data = net_data,
+        aes(
+          x = .data$net_x,
+          y = .data$net_y,
+          image = .data$colored_icon
+        ),
+        size = goal_net_icon_size
+      )
+  } else {
+    goal_plot <- goal_plot +
+      geom_point(
+        data = net_data,
+        aes(
+          x = .data$net_x,
+          y = .data$net_y,
+          shape = .data$goal_shape,
+          alpha = .data$marker_alpha
+        ),
+        fill = net_data$marker_fill,
+        size = goal_marker_size,
+        colour = "#222222",
+        stroke = 0.35
+      ) +
+      scale_shape_manual(values = goal_shape_values, guide = "none") +
+      scale_alpha_identity()
+  }
+
+  goal_plot <- goal_plot +
     labs(subtitle = "Goal mouth (shot end position)") +
     coord_fixed(
       ratio = goal_layout$coord_ratio,
@@ -364,25 +405,37 @@ viz_shot_map_goal_net <- function(events_df,
       panel.grid = element_blank()
     )
 
-  label_data <- shots_for_xg_labels(
-    net_data,
-    show_xg_labels = show_xg_labels,
-    xg_label_threshold = xg_label_threshold
-  )
+  label_data <- if (isTRUE(show_minute_labels) && nrow(net_data) > 0) {
+    net_data %>%
+      dplyr::filter(!is.na(.data$minute)) %>%
+      add_goal_net_minute_label_positions(
+        goal_width_m = goal_width_m,
+        goal_height_m = goal_height_m,
+        icon_size = goal_net_icon_size
+      )
+  } else {
+    net_data[0, , drop = FALSE]
+  }
 
   if (nrow(label_data) > 0) {
     goal_plot <- goal_plot +
-      geom_text(
+      geom_label(
         data = label_data,
         aes(
-          x = .data$net_x,
-          y = .data$net_y + goal_height_m * 0.07,
-          label = sprintf("xG %.2f", .data$`shot.statsbomb_xg`),
-          colour = .data$marker_fill
+          x = .data$label_x,
+          y = .data$label_y,
+          label = paste0(.data$minute, "'"),
+          colour = .data$marker_fill,
+          vjust = .data$label_vjust,
+          hjust = .data$label_hjust
         ),
-        size = 3.4,
+        size = 3.1,
         fontface = "bold",
         family = SDC_FONTS$body,
+        fill = "white",
+        linewidth = 0,
+        label.padding = grid::unit(0.15, "lines"),
+        alpha = 0.92,
         show.legend = FALSE
       ) +
       scale_colour_identity()
@@ -429,15 +482,24 @@ viz_shot_map_goal_net <- function(events_df,
     icon_color = shot_color,
     shot_colors = shot_colors,
     xg_limits = xg_limits,
-    show_xg_legend = is.null(team_colors)
+    show_xg_legend = is.null(team_colors),
+    show_goal_net_ball_legend = FALSE,
+    show_trajectory_legend = isTRUE(show_trajectories)
   )
 
   if (!requireNamespace("patchwork", quietly = TRUE)) {
     install.packages("patchwork", repos = "https://cloud.r-project.org")
   }
 
-  goal_row <- wrap_centered_goal_panel(
+  goal_legend <- if (isTRUE(goal_net_use_ball_icons)) {
+    plot_goal_mouth_ball_legend()
+  } else {
+    NULL
+  }
+
+  goal_row <- wrap_goal_panel_block(
     goal_plot,
+    legend_plot = goal_legend,
     width_frac = goal_panel_width_frac
   )
 
@@ -469,11 +531,18 @@ viz_shot_map_goal_net <- function(events_df,
     patchwork::plot_annotation(
       title = title %||% player_chart_title(label, title_suffix),
       subtitle = subtitle,
-      caption = paste(
-        "Dashed lines show shot path. Goal panel: circle = goal, square = no goal.",
-        "Pitch icons show body part; colour reflects xG (team hue when both sides shown).",
-        "Penalties excluded."
-      ),
+      caption = if (isTRUE(goal_net_use_ball_icons)) {
+        paste(
+          "Pitch icons show body part; colour reflects xG.",
+          "Penalties excluded."
+        )
+      } else {
+        paste(
+          "Goal panel: circle = goal, square = no goal.",
+          "Pitch icons show body part; colour reflects xG (team hue when both sides shown).",
+          "Penalties excluded."
+        )
+      },
       theme = theme_sdc()
     )
 

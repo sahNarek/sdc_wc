@@ -69,10 +69,19 @@ draw_pitch_sb <- function(
   )
 }
 
+#' Attacking-third pitch (goal at top) for shot maps
+#'
+#' Uses \code{coord_flip} without \code{scale_y_reverse} so StatsBomb \code{y}
+#' increases left-to-right (36 = left post, 44 = right post) and shot
+#' trajectories point to the correct side of the goal mouth.
 draw_pitch_half_attacking <- function(colour = "black", linewidth = 0.6) {
   c(
-    draw_pitch_sb(colour = colour, linewidth = linewidth),
-    list(coord_flip(xlim = c(85, 125)))
+    draw_pitch_markings(colour = colour, linewidth = linewidth),
+    list(
+      theme(rect = element_blank(), line = element_blank()),
+      coord_fixed(ratio = 105 / 100),
+      coord_flip(xlim = c(85, 125))
+    )
   )
 }
 
@@ -115,6 +124,25 @@ wrap_centered_goal_panel <- function(goal_plot, width_frac = 0.58) {
     ncol = 3,
     widths = c(side, width_frac, side)
   )
+}
+
+#' Stack goal-mouth panel with an optional centred legend row beneath it
+wrap_goal_panel_block <- function(goal_plot,
+                                  legend_plot = NULL,
+                                  width_frac = 0.58,
+                                  legend_height = 0.11) {
+  panel <- if (is.null(legend_plot)) {
+    goal_plot
+  } else {
+    patchwork::wrap_plots(
+      goal_plot,
+      legend_plot,
+      ncol = 1,
+      heights = c(1, legend_height)
+    )
+  }
+
+  wrap_centered_goal_panel(panel, width_frac = width_frac)
 }
 
 #' Optional SVG background for goal-mouth panel (viewBox should match 7.32 x 2.44 m)

@@ -46,7 +46,8 @@ match_report_defaults <- function(match_id) {
       away_color = "#006233",
       shot_map_scope = "featured_only",
       shot_map_iterate_palette = FALSE,
-      shot_map_icon_set = "footprint"
+      shot_map_icon_set = "footprint",
+      goal_net_use_ball_icons = TRUE
     ),
     list()
   )
