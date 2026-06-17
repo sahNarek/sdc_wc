@@ -66,17 +66,18 @@ load_match_data <- function(provider,
 
   wc_matches <- load_processed_matches(provider, root = root)
 
+  mid <- match_id
   list(
     provider = provider,
     match_id = match_id,
-    meta = wc_matches$meta %>% dplyr::filter(.data$match_id == match_id),
-    events = wc_matches$events %>% dplyr::filter(.data$match_id == match_id),
-    lineups = wc_matches$lineups %>% dplyr::filter(.data$match_id == match_id),
+    meta = wc_matches$meta %>% dplyr::filter(.data$match_id == .env$mid),
+    events = wc_matches$events %>% dplyr::filter(.data$match_id == .env$mid),
+    lineups = wc_matches$lineups %>% dplyr::filter(.data$match_id == .env$mid),
     players = wc_matches$players,
     teams = wc_matches$teams,
     player_match_stats = wc_matches$player_match_stats %>%
-      dplyr::filter(.data$match_id == match_id),
+      dplyr::filter(.data$match_id == .env$mid),
     team_match_stats = wc_matches$team_match_stats %>%
-      dplyr::filter(.data$match_id == match_id)
+      dplyr::filter(.data$match_id == .env$mid)
   )
 }

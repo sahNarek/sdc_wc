@@ -33,7 +33,9 @@ config/
 3. Add an entry to `config/providers.yml`.
 4. Map IDs in `config/matches.yml` / `game_ids.csv`.
 
-No changes to `R/viz/` or `reports/_provider_sections.Rmd` are required.
+Wyscout is integrated from `all_data/WYSCOUT/gold/matches/{id}/match.csv`. See `docs/wyscout_data_dictionary.md`.
+
+No changes to `R/viz/` UC1–UC8 are required when canonical `events` are populated; summary charts (`viz_use_case_wyscout_01.R`) are used when only aggregates exist.
 
 ## Regression check (StatsBomb)
 

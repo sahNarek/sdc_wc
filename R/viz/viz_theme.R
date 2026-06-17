@@ -36,13 +36,35 @@ gradient_lightest <- function(color, mix = 0.94) {
   grDevices::rgb(blended[[1]], blended[[2]], blended[[3]])
 }
 
+#' Darken a palette colour toward black (for high-xG shot icons)
+gradient_darkest <- function(color, amount = 0.22) {
+  rgb <- grDevices::col2rgb(color) / 255
+  scaled <- pmax(0, rgb * (1 - amount))
+  grDevices::rgb(scaled[[1]], scaled[[2]], scaled[[3]])
+}
+
+#' Shot-map gradient: medium tint → base palette → darker base (no near-white lows)
+palette_shot_map_gradient <- function(color = SDC_PALETTE[["blue"]], n = 11) {
+  grDevices::colorRampPalette(c(
+    gradient_lightest(color, mix = 0.44),
+    color,
+    gradient_darkest(color, amount = 0.32)
+  ))(n)
+}
+
 #' Resolve single-hue gradient colours (shot maps, heatmaps, icons)
 resolve_single_hue_gradient <- function(color = SDC_PALETTE[["blue"]],
                                         lightest_color = NULL,
                                         gradient_colors = NULL,
-                                        n = 11) {
+                                        n = 11,
+                                        variant = c("default", "shot_map")) {
+  variant <- match.arg(variant)
   if (!is.null(gradient_colors)) {
     return(gradient_colors)
+  }
+
+  if (variant == "shot_map") {
+    return(palette_shot_map_gradient(color = color, n = n))
   }
 
   palette_single_gradient(
@@ -262,7 +284,13 @@ default_chart_titles <- function(meta) {
     pass_map_suffix = "completed passes into the penalty area",
     shot_map_suffix = "shot map",
     shot_map_left_foot_suffix = "shot map (left foot)",
-    shot_map_goal_net_suffix = "shot map and goal mouth"
+    shot_map_goal_net_suffix = "shot map and goal mouth",
+    team_shot_map_suffix = "team shot map",
+    match_shot_map_suffix = "match shot map",
+    team_shot_map_goal_net_suffix = "team shot map and goal mouth",
+    match_shot_map_goal_net_suffix = "match shot map and goal mouth",
+    wyscout_goals_assists = "Goals and assists by player",
+    wyscout_minutes = "Minutes played"
   )
 }
 

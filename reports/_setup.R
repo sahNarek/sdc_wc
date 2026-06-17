@@ -6,6 +6,7 @@ source_project_r <- function(root) {
   core_order <- c(
     "paths.R",
     "schema.R",
+    "capabilities.R",
     "registry.R",
     "build_all.R",
     "load_match_data.R"
@@ -22,6 +23,7 @@ source_project_r <- function(root) {
   pre_registry <- c(
     file.path(core_dir, "paths.R"),
     file.path(core_dir, "schema.R"),
+    file.path(core_dir, "capabilities.R"),
     provider_files,
     file.path(core_dir, "registry.R"),
     file.path(core_dir, "build_all.R"),

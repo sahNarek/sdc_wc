@@ -74,9 +74,30 @@ if (length(data_roots) == 0) {
     ids <- list.dirs(p, recursive = FALSE, full.names = FALSE)
     ids[grepl("^[0-9]+$", ids)]
   })))
-  message("  Found ", length(match_ids), " match folder(s): ",
+  message("  Found ", length(match_ids), " StatsBomb match folder(s): ",
           paste(head(match_ids, 5), collapse = ", "),
           if (length(match_ids) > 5) " ..." else "")
+}
+
+all_data_dir <- NULL
+for (name in c("all_data", "all_data ")) {
+  candidate <- file.path(root, name)
+  if (dir.exists(candidate)) {
+    all_data_dir <- candidate
+    break
+  }
+}
+wyscout_root <- if (!is.null(all_data_dir)) {
+  file.path(all_data_dir, "WYSCOUT", "gold", "matches")
+} else {
+  ""
+}
+if (dir.exists(wyscout_root)) {
+  wy_ids <- list.dirs(wyscout_root, recursive = FALSE, full.names = FALSE)
+  wy_ids <- wy_ids[grepl("^[0-9]+$", wy_ids)]
+  message("  Wyscout (all_data): ", length(wy_ids), " gold match folder(s)")
+} else {
+  message("  Wyscout: no all_data/WYSCOUT/gold/matches (optional)")
 }
 
 # --- R packages ---

@@ -31,6 +31,27 @@ ensure_pdf_engine <- function() {
   invisible(TRUE)
 }
 
+#' Default Rmd params for known development / assigned matches
+match_report_defaults <- function(match_id) {
+  switch(
+    as.character(match_id),
+    "4036731" = list(
+      featured_icon_player = "Jamal Musiala",
+      home_color = "#1F77B4",
+      away_color = "#FF7F0E"
+    ),
+    "4036737" = list(
+      featured_icon_player = "Lionel Messi",
+      home_color = "#74ACDF",
+      away_color = "#006233",
+      shot_map_scope = "featured_only",
+      shot_map_iterate_palette = FALSE,
+      shot_map_icon_set = "footprint"
+    ),
+    list()
+  )
+}
+
 #' Render the match report to HTML, PDF, or both
 #'
 #' @param match_id Canonical match ID (StatsBomb ID for development matches)
@@ -62,15 +83,6 @@ render_match_report <- function(match_id = 4036731,
     )
   }
 
-  rmd_path <- file.path(root, "reports", "02_match_report_template.Rmd")
-  params <- c(
-    list(
-      match_id = match_id,
-      providers = active_providers
-    ),
-    list(...)
-  )
-
   primary_provider <- if ("statsbomb" %in% active_providers) {
     "statsbomb"
   } else {
@@ -81,6 +93,15 @@ render_match_report <- function(match_id = 4036731,
     stop("No metadata for match ", match_id, " (provider: ", primary_provider, ").", call. = FALSE)
   }
 
+  params <- c(
+    list(
+      match_id = match_id,
+      providers = active_providers
+    ),
+    match_report_defaults(match_id),
+    list(...)
+  )
+
   output_basename <- report_output_basename(
     home_team = primary_meta$home_team[1],
     away_team = primary_meta$away_team[1],
@@ -88,6 +109,7 @@ render_match_report <- function(match_id = 4036731,
     active_providers = active_providers
   )
 
+  rmd_path <- file.path(root, "reports", "02_match_report_template.Rmd")
   outputs <- character(0)
 
   render_one <- function(output_format) {

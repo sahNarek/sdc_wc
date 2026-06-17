@@ -22,6 +22,9 @@ params:
   chart_titles: null
   featured_icon_player: "Jamal Musiala"
   featured_left_foot_player: null
+  shot_map_scope: "full"
+  shot_map_iterate_palette: true
+  shot_map_icon_set: "footprint"
 ---
 
 ```{r setup, include=FALSE}
@@ -99,9 +102,12 @@ slug <- figure_slug(meta$home_team, "vs", meta$away_team)
 `r subtitle`
 
 ```{r provider-sections, results='asis'}
-child_path <- file.path(here, "_provider_sections.Rmd")
-if (!file.exists(child_path)) {
-  child_path <- file.path(dirname(knitr::current_input(dir = TRUE)), "_provider_sections.Rmd")
+events_child <- file.path(here, "_provider_sections.Rmd")
+summary_child <- file.path(here, "_provider_sections_summary.Rmd")
+if (!file.exists(events_child)) {
+  base_dir <- dirname(knitr::current_input(dir = TRUE))
+  events_child <- file.path(base_dir, "_provider_sections.Rmd")
+  summary_child <- file.path(base_dir, "_provider_sections_summary.Rmd")
 }
 
 for (provider in active_providers) {
@@ -110,7 +116,18 @@ for (provider in active_providers) {
   pms <- pdata$player_match_stats
   meta <- pdata$meta
 
-  if (nrow(meta) == 0 || nrow(events) == 0) {
+  if (nrow(meta) == 0) {
+    next
+  }
+
+  use_events <- events_usable_for_viz(events)
+  use_summary <- provider_has_summary_viz(provider) && nrow(pms) > 0
+
+  if (!use_events && !use_summary) {
+    message(
+      "Skipping provider ", provider, " for match ", match_id,
+      ": no event or summary data."
+    )
     next
   }
 
@@ -129,6 +146,7 @@ for (provider in active_providers) {
     meta$display_away
   )
 
+  child_path <- if (use_events) events_child else summary_child
   child_lines <- readLines(child_path, warn = FALSE)
   child_lines <- gsub("^```\\{r ", paste0("```{r ", provider, "_"), child_lines)
 

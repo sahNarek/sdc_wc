@@ -98,7 +98,9 @@ PDF: `tinytex` (optional, via `--pdf` flag)
 
 ### Match data (not in git)
 
-You must provide raw match JSON locally (StatsBomb under `data/raw/statsbomb/` or legacy `data_sample/`). See [Adding new match data](#adding-new-match-data).
+### Match data (not in git)
+
+Provide StatsBomb JSON under `data_sample/` or `all_data/STATSBOMB/raw/`. Wyscout gold CSVs live under `all_data/WYSCOUT/gold/matches/` (see `docs/wyscout_data_dictionary.md`).
 
 ---
 
@@ -140,7 +142,7 @@ sdc_wc/
 ├── data/
 │   ├── raw/
 │   │   ├── statsbomb/matches/   # StatsBomb JSON (preferred)
-│   │   └── wyscout/             # Wyscout raw data (future)
+│   │   └── wyscout/             # Wyscout processed path (source: all_data/WYSCOUT/)
 │   └── processed/
 │       └── {provider}/wc_matches.rda
 ├── data_sample/                 # Legacy StatsBomb path (still supported)
@@ -148,7 +150,7 @@ sdc_wc/
 │   ├── core/                    # paths, schema, registry, build_all
 │   ├── providers/
 │   │   ├── statsbomb/           # StatsBomb ingestion
-│   │   └── wyscout/             # Wyscout scaffold
+│   │   └── wyscout/             # Wyscout ingestion (gold CSV from all_data/)
 │   ├── viz/                     # Reusable chart functions
 │   └── render_report.R
 ├── reports/
@@ -489,7 +491,9 @@ Functions follow **Working-with-R.pdf** (StatsBomb guide). All accept `events_df
 | 6 | `viz_defensive_heatmap()` | Zone heatmap — single-hue gradient; `heat_color` configurable |
 | 7 | `viz_shot_map()` | Shot map (ggplot shapes) — `shot_color` configurable |
 | 7b | `viz_shot_map_icons()` | Shot map (footprint/head SVG icons) — `shot_color` configurable |
-| 8 | `viz_shot_map_goal_net()` | Shot map + goal-mouth panel with trajectories and xG labels |
+| 8 | `viz_shot_map_goal_net()` | Shot map + goal-mouth panel with trajectories |
+| W1 | `viz_wyscout_goals_assists()` | Wyscout aggregate — goals & assists by player |
+| W2 | `viz_wyscout_minutes_played()` | Wyscout aggregate — minutes played |
 
 Reports export **six palette variants** per single-hue chart (Blue, Orange, Green, Red, Purple, Cyan), e.g. `Shot_Map_Goal_Net_Musiala_Green.png`.
 

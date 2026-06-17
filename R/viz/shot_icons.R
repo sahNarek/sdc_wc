@@ -160,13 +160,39 @@ add_colored_shot_icons <- function(shots_df,
                                    shot_color = SDC_PALETTE[["blue"]],
                                    lightest_color = NULL,
                                    gradient_colors = NULL,
+                                   team_colors = NULL,
                                    limits = c(0, 0.8),
                                    icon_set = "footprint") {
+  if (!is.null(team_colors) && "team.name" %in% names(shots_df)) {
+    return(shots_df %>%
+      dplyr::mutate(
+        colored_icon = purrr::pmap_chr(
+          list(.data$`shot.body_part.name`, .data$`shot.statsbomb_xg`, .data$`team.name`),
+          function(body_part, xg, team) {
+            base_color <- team_colors[[team]]
+            if (is.null(base_color) || is.na(base_color)) {
+              base_color <- shot_color
+            }
+            colors <- resolve_single_hue_gradient(
+              color = base_color,
+              lightest_color = lightest_color,
+              gradient_colors = gradient_colors,
+              n = 11,
+              variant = "shot_map"
+            )
+            hex <- xg_to_hex(xg, colors = colors, limits = limits)
+            colored_body_part_icon_path(body_part, hex, icon_set = icon_set)
+          }
+        )
+      ))
+  }
+
   colors <- resolve_single_hue_gradient(
     color = shot_color,
     lightest_color = lightest_color,
     gradient_colors = gradient_colors,
-    n = 11
+    n = 11,
+    variant = "shot_map"
   )
 
   shots_df %>%
@@ -213,28 +239,80 @@ plot_body_part_legend <- function(icon_color = SDC_PALETTE[["blue"]],
     )
 
   ggplot2::ggplot(legend_df, ggplot2::aes(x = x, y = y)) +
-    ggimage::geom_image(ggplot2::aes(image = icon), size = 0.16) +
+    ggimage::geom_image(ggplot2::aes(image = icon), size = 0.28) +
     ggplot2::geom_text(
       ggplot2::aes(label = label),
-      y = 0.7,
+      y = 0.68,
       family = SDC_FONTS$body,
-      size = 3.2,
+      size = 4.2,
       colour = "#333333"
     ) +
     ggplot2::xlim(0.4, 3.6) +
-    ggplot2::ylim(0.5, 1.15) +
+    ggplot2::ylim(0.45, 1.18) +
     ggplot2::theme_void() +
     ggplot2::theme(plot.margin = ggplot2::margin(0, 0, 0, 0))
 }
 
-#' Combine shot map with icon legend
+#' Standalone xG colour-bar legend for shot maps
+plot_xg_legend <- function(shot_colors,
+                           limits = c(0, 0.8)) {
+  legend_df <- tibble::tibble(x = 1, y = 1, xg = limits[1])
+
+  ggplot2::ggplot(legend_df, ggplot2::aes(x = .data$x, y = .data$y, fill = .data$xg)) +
+    ggplot2::geom_point(size = 0, alpha = 0) +
+    ggplot2::scale_fill_gradientn(
+      colours = shot_colors,
+      limits = limits,
+      oob = scales::squish,
+      name = "Expected goals\n(xG)"
+    ) +
+    ggplot2::theme_void() +
+    ggplot2::theme(
+      legend.position = "bottom",
+      legend.title = ggplot2::element_text(
+        family = SDC_FONTS$body,
+        size = 12,
+        colour = "#333333"
+      ),
+      legend.text = ggplot2::element_text(
+        family = SDC_FONTS$body,
+        size = 11,
+        colour = "#333333"
+      ),
+      legend.key.height = ggplot2::unit(0.4, "cm"),
+      legend.key.width = ggplot2::unit(1.35, "cm"),
+      plot.margin = ggplot2::margin(0, 0, 4, 0)
+    ) +
+    ggplot2::guides(fill = ggplot2::guide_colourbar(title.position = "top"))
+}
+
+#' Combine shot map with body-part legend (top) and xG legend (bottom)
 assemble_shot_map <- function(shot_plot,
                               icon_set = "footprint",
-                              icon_color = SDC_PALETTE[["blue"]]) {
+                              icon_color = SDC_PALETTE[["blue"]],
+                              shot_colors = NULL,
+                              xg_limits = c(0, 0.8),
+                              show_xg_legend = TRUE) {
   if (!requireNamespace("patchwork", quietly = TRUE)) {
     install.packages("patchwork", repos = "https://cloud.r-project.org")
   }
 
-  legend <- plot_body_part_legend(icon_set = icon_set, icon_color = icon_color)
-  patchwork::wrap_plots(shot_plot, legend, ncol = 1, heights = c(1, 0.1))
+  if (is.null(shot_colors)) {
+    shot_colors <- resolve_single_hue_gradient(
+      color = icon_color,
+      variant = "shot_map",
+      n = 11
+    )
+  }
+
+  body_legend <- plot_body_part_legend(icon_set = icon_set, icon_color = icon_color)
+  panels <- list(shot_plot, body_legend)
+  heights <- c(1, 0.18)
+
+  if (isTRUE(show_xg_legend)) {
+    panels <- c(panels, list(plot_xg_legend(shot_colors, limits = xg_limits)))
+    heights <- c(heights, 0.10)
+  }
+
+  patchwork::wrap_plots(panels, ncol = 1, heights = heights)
 }

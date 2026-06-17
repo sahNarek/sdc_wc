@@ -37,10 +37,15 @@ for (provider in providers) {
 
 primary_id <- config$development$primary_match_id
 primary_provider <- if ("statsbomb" %in% providers) "statsbomb" else providers[1]
-events <- load_match_data(primary_provider, primary_id)$events
+primary_data <- load_match_data(primary_provider, primary_id)
+events <- primary_data$events
 
-sg <- compute_team_shots_goals(events, match_id = primary_id)
 print(wc_matches$meta)
-print(sg)
+if (events_usable_for_viz(events)) {
+  sg <- compute_team_shots_goals(events, match_id = primary_id)
+  print(sg)
+} else {
+  message("No event stream for ", primary_provider, " — skipping shots/goals summary.")
+}
 
 message("Done.")

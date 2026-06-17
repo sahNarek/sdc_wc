@@ -1,0 +1,41 @@
+### Goals and assists
+
+```{r ucw1}
+p_w1 <- viz_wyscout_goals_assists(
+  pms,
+  match_id = match_id,
+  title = chart_titles$wyscout_goals_assists,
+  subtitle = subtitle,
+  team_labels = team_labels
+)
+print(p_w1)
+save_figure(
+  p_w1,
+  file.path(fig_dir, paste0("Wyscout_Goals_Assists_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+### Minutes played
+
+```{r ucw2}
+p_w2 <- viz_wyscout_minutes_played(
+  pms,
+  match_id = match_id,
+  title = chart_titles$wyscout_minutes,
+  subtitle = subtitle,
+  fill_colors = team_colors
+)
+print(p_w2)
+save_figure(
+  p_w2,
+  file.path(fig_dir, paste0("Wyscout_Minutes_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+*Event-level charts (shots maps, pass maps, heatmaps) require an event stream. This Wyscout bundle provides player and team aggregates only.*
+
+---
+
+Figures saved to: `r fig_dir`

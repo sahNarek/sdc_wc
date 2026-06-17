@@ -32,12 +32,52 @@ load_providers_config <- function(root = get_project_root()) {
   yaml::read_yaml(file.path(root, "config", "providers.yml"))
 }
 
-#' Raw data directory for a provider (data_sample/ shim for StatsBomb)
+#' Local multi-provider bundle (all_data/ or all_data with trailing space)
+get_all_data_dir <- function(root = get_project_root()) {
+  for (name in c("all_data", "all_data ")) {
+    path <- file.path(root, name)
+    if (dir.exists(path)) {
+      return(path)
+    }
+  }
+  file.path(root, "all_data")
+}
+
+#' All StatsBomb raw roots, highest priority first (all_data bundle, then legacy)
+statsbomb_raw_dirs <- function(root = get_project_root()) {
+  dirs <- character(0)
+
+  bundled <- file.path(get_all_data_dir(root), "STATSBOMB", "raw")
+  if (dir.exists(file.path(bundled, "matches"))) {
+    dirs <- c(dirs, bundled)
+  }
+
+  legacy <- file.path(root, "data_sample")
+  if (dir.exists(file.path(legacy, "matches"))) {
+    dirs <- c(dirs, legacy)
+  }
+
+  fallback <- file.path(root, "data", "raw", "statsbomb")
+  if (dir.exists(file.path(fallback, "matches"))) {
+    dirs <- c(dirs, fallback)
+  }
+
+  unique(dirs)
+}
+
+#' Primary StatsBomb raw directory (first root that exists)
 get_provider_raw_dir <- function(provider, root = get_project_root()) {
   if (provider == "statsbomb") {
-    legacy <- file.path(root, "data_sample")
-    if (dir.exists(file.path(legacy, "matches"))) {
-      return(legacy)
+    dirs <- statsbomb_raw_dirs(root)
+    if (length(dirs) > 0) {
+      return(dirs[[1]])
+    }
+  }
+
+  if (provider == "wyscout") {
+    bundled <- file.path(get_all_data_dir(root), "WYSCOUT")
+    if (dir.exists(file.path(bundled, "gold", "matches"))) {
+      return(bundled)
     }
   }
 

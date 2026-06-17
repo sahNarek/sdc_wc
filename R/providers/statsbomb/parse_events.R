@@ -13,6 +13,13 @@ coord_y <- function(loc) {
   as.numeric(loc[[2]])
 }
 
+coord_z <- function(loc) {
+  if (is.null(loc) || length(loc) < 3) {
+    return(NA_real_)
+  }
+  as.numeric(loc[[3]])
+}
+
 nested_name <- function(obj, field = "name") {
   if (is.null(obj) || is.null(obj[[field]])) {
     return(NA_character_)
@@ -81,6 +88,7 @@ flatten_event <- function(event, match_id) {
     },
     shot_end_location_x = coord_x(if (!is.null(shot)) shot$end_location else NULL),
     shot_end_location_y = coord_y(if (!is.null(shot)) shot$end_location else NULL),
+    shot_end_location_z = coord_z(if (!is.null(shot)) shot$end_location else NULL),
     duel_type_name = nested_name(if (!is.null(duel)) duel$type else NULL)
   )
 }
@@ -117,6 +125,7 @@ add_statsbomb_aliases <- function(events_df) {
       `shot.key_pass_id` = .data$shot_key_pass_id,
       `shot.end_location.x` = .data$shot_end_location_x,
       `shot.end_location.y` = .data$shot_end_location_y,
+      `shot.end_location.z` = .data$shot_end_location_z,
       `duel.type.name` = .data$duel_type_name
     )
 }

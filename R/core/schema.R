@@ -76,6 +76,10 @@ ensure_viz_aliases <- function(events_df) {
         .data$`shot.end_location.y`,
         .data$shot_end_location_y
       ),
+      `shot.end_location.z` = dplyr::coalesce(
+        .data$`shot.end_location.z`,
+        .data$shot_end_location_z
+      ),
       `duel.type.name` = dplyr::coalesce(
         .data$`duel.type.name`,
         .data$duel_type_name

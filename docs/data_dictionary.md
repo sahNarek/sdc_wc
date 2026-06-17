@@ -67,7 +67,7 @@ data/raw/statsbomb/matches/{match_id}/v*/
 | `player_id` / `player_name` | `player.id` / `player.name` |
 | `location_x/y` | `location[1]`, `location[2]` |
 | `shot_statsbomb_xg` | `shot.statsbomb_xg` |
-| `shot_end_location_x/y` | `shot.end_location[1]`, `shot.end_location[2]` |
+| `shot_end_location_x/y/z` | `shot.end_location[1]`, `[2]`, `[3]` — z is height in metres (often missing for Blocked/Wayward) |
 | `shot_outcome_name` | `shot.outcome.name` |
 | `shot_key_pass_id` | `shot.key_pass_id` |
 | `pass_end_location_x/y` | `pass.end_location` |

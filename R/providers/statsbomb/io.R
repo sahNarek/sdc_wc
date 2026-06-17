@@ -2,40 +2,56 @@
 list_available_match_ids <- function(provider = "statsbomb",
                                      data_dir = NULL,
                                      root = get_project_root()) {
-  if (is.null(data_dir)) {
-    data_dir <- get_provider_raw_dir(provider, root = root)
+  if (!is.null(data_dir)) {
+    data_dirs <- data_dir
+  } else if (provider == "statsbomb") {
+    data_dirs <- statsbomb_raw_dirs(root)
+  } else {
+    data_dirs <- get_provider_raw_dir(provider, root = root)
   }
 
-  match_root <- file.path(data_dir, "matches")
-  if (!dir.exists(match_root)) {
-    return(integer(0))
+  ids <- integer(0)
+  for (dir in data_dirs) {
+    match_root <- file.path(dir, "matches")
+    if (!dir.exists(match_root)) {
+      next
+    }
+    found <- list.dirs(match_root, full.names = FALSE, recursive = FALSE)
+    found <- found[nzchar(found)]
+    ids <- c(ids, as.integer(found))
   }
 
-  ids <- list.dirs(match_root, full.names = FALSE, recursive = FALSE)
-  ids <- ids[nzchar(ids)]
-  sort(as.integer(ids))
+  sort(unique(ids[!is.na(ids)]))
 }
 
 #' Resolve highest version folder for a match file
 resolve_match_file <- function(match_id,
                                file_name,
-                               data_dir = get_provider_raw_dir("statsbomb")) {
-  match_dir <- file.path(data_dir, "matches", as.character(match_id))
-  if (!dir.exists(match_dir)) {
-    return(NULL)
+                               data_dir = NULL) {
+  data_dirs <- if (is.null(data_dir)) {
+    statsbomb_raw_dirs()
+  } else {
+    data_dir
   }
 
-  versions <- list.dirs(match_dir, full.names = FALSE, recursive = FALSE)
-  versions <- versions[grepl("^v[0-9]+$", versions)]
-  if (length(versions) == 0) {
-    return(NULL)
-  }
+  for (dir in data_dirs) {
+    match_dir <- file.path(dir, "matches", as.character(match_id))
+    if (!dir.exists(match_dir)) {
+      next
+    }
 
-  version_nums <- as.integer(sub("^v", "", versions))
-  for (v in sort(version_nums, decreasing = TRUE)) {
-    candidate <- file.path(match_dir, paste0("v", v), file_name)
-    if (file.exists(candidate)) {
-      return(candidate)
+    versions <- list.dirs(match_dir, full.names = FALSE, recursive = FALSE)
+    versions <- versions[grepl("^v[0-9]+$", versions)]
+    if (length(versions) == 0) {
+      next
+    }
+
+    version_nums <- as.integer(sub("^v", "", versions))
+    for (v in sort(version_nums, decreasing = TRUE)) {
+      candidate <- file.path(match_dir, paste0("v", v), file_name)
+      if (file.exists(candidate)) {
+        return(candidate)
+      }
     }
   }
 
