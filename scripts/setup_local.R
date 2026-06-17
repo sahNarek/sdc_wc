@@ -59,14 +59,21 @@ for (d in dirs) {
 
 # --- Match data ---
 message("\n[4/6] Match data")
-data_sample <- file.path(root, "data_sample", "matches")
-if (!dir.exists(data_sample)) {
-  message("  WARNING: ", data_sample, " not found.")
-  message("  Copy StatsBomb JSON into data_sample/matches/{match_id}/v1/")
+legacy_sample <- file.path(root, "data_sample", "matches")
+raw_statsbomb <- file.path(root, "data", "raw", "statsbomb", "matches")
+data_roots <- c(legacy_sample, raw_statsbomb)
+data_roots <- data_roots[dir.exists(data_roots)]
+
+if (length(data_roots) == 0) {
+  message("  WARNING: No raw StatsBomb data found.")
+  message("  Copy JSON to data/raw/statsbomb/matches/{match_id}/v1/")
+  message("  or legacy data_sample/matches/{match_id}/v1/")
   message("  See README.md → Adding new match data")
 } else {
-  match_ids <- list.dirs(data_sample, recursive = FALSE, full.names = FALSE)
-  match_ids <- match_ids[grepl("^[0-9]+$", match_ids)]
+  match_ids <- unique(unlist(lapply(data_roots, function(p) {
+    ids <- list.dirs(p, recursive = FALSE, full.names = FALSE)
+    ids[grepl("^[0-9]+$", ids)]
+  })))
   message("  Found ", length(match_ids), " match folder(s): ",
           paste(head(match_ids, 5), collapse = ", "),
           if (length(match_ids) > 5) " ..." else "")
@@ -135,7 +142,7 @@ if (!check_only) {
 
 message("\n=== Setup complete ===")
 message("Next steps:")
-message("  1. Ensure data_sample/ contains match JSON (see README)")
+message("  1. Ensure raw match JSON is available (data/raw/ or data_sample/)")
 message("  2. Rscript scripts/run_build.R")
 message("  3. Rscript scripts/run_report.R 4036731 html")
 message("     Rscript scripts/run_report.R 4036731 both   # HTML + PDF")

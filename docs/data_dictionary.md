@@ -2,14 +2,43 @@
 
 ## Directory layout
 
+Preferred StatsBomb path:
+
 ```
-data_sample/
-├── competitions/v*/competitions.json
-├── seasons/43_316/
-│   ├── matches/v*/matches.json
-│   ├── player_season_stats/v*/
-│   └── team_season_stats/v*/
-└── matches/{match_id}/v*/
+data/raw/statsbomb/matches/{match_id}/v*/
+```
+
+Legacy path (still supported):
+
+```
+data_sample/matches/{match_id}/v*/
+```
+
+## Canonical processed schema (all providers)
+
+Every provider pipeline must produce these tables before visualization (`R/core/schema.R`):
+
+| Table | Required keys | Notes |
+|-------|---------------|-------|
+| `meta` | `match_id`, `provider`, `provider_match_id` | One row per match |
+| `events` | `match_id`, `provider`, `provider_match_id`, `id` | Flattened events |
+| `lineups` | `match_id`, `player_id`, `team_id` | Long format |
+| `players` | `player_id` | Lookup with `player_display_name` |
+| `teams` | `team_id` | Team lookup |
+| `player_match_stats` | `match_id`, `player_id` | Per-player metrics |
+| `team_match_stats` | `match_id`, `team_id` | Per-team metrics |
+
+- `match_id` — canonical internal ID (StatsBomb ID for development matches)
+- `provider` — slug (`statsbomb`, `wyscout`, …); metadata only, not used in chart text
+- `provider_match_id` — vendor-native match ID
+- `shot_xg` — canonical expected-goals column; viz aliases (`shot.statsbomb_xg`) are added at the boundary
+
+Processed files are stored at `data/processed/{provider}/wc_matches.rda`.
+
+## StatsBomb raw layout
+
+```
+data/raw/statsbomb/matches/{match_id}/v*/
     ├── events.json
     ├── 360_frames.json
     ├── lineups.json
@@ -38,6 +67,7 @@ data_sample/
 | `player_id` / `player_name` | `player.id` / `player.name` |
 | `location_x/y` | `location[1]`, `location[2]` |
 | `shot_statsbomb_xg` | `shot.statsbomb_xg` |
+| `shot_end_location_x/y` | `shot.end_location[1]`, `shot.end_location[2]` |
 | `shot_outcome_name` | `shot.outcome.name` |
 | `shot_key_pass_id` | `shot.key_pass_id` |
 | `pass_end_location_x/y` | `pass.end_location` |

@@ -1,10 +1,10 @@
 #' Parse player_match_stats JSON
 parse_player_match_stats_json <- function(stats, match_id) {
   if (length(stats) == 0) {
-    return(tibble())
+    return(tibble::tibble())
   }
 
-  df <- bind_rows(stats)
+  df <- dplyr::bind_rows(stats)
   df$match_id <- as.integer(match_id)
   df
 }
@@ -12,10 +12,10 @@ parse_player_match_stats_json <- function(stats, match_id) {
 #' Parse team_match_stats JSON
 parse_team_match_stats_json <- function(stats, match_id) {
   if (length(stats) == 0) {
-    return(tibble())
+    return(tibble::tibble())
   }
 
-  df <- bind_rows(stats)
+  df <- dplyr::bind_rows(stats)
   df$match_id <- as.integer(match_id)
   df
 }
@@ -25,12 +25,12 @@ build_match_meta <- function(match_id,
                            team_match_stats_df,
                            display_row = NULL) {
   winner <- team_match_stats_df %>%
-    filter(team_match_gd > 0) %>%
-    slice(1)
+    dplyr::filter(.data$team_match_gd > 0) %>%
+    dplyr::slice(1)
 
   loser <- team_match_stats_df %>%
-    filter(team_match_gd < 0) %>%
-    slice(1)
+    dplyr::filter(.data$team_match_gd < 0) %>%
+    dplyr::slice(1)
 
   if (nrow(winner) == 0) {
     home_team <- team_match_stats_df$team_name[1]
@@ -44,7 +44,7 @@ build_match_meta <- function(match_id,
     away_score <- as.integer(loser$team_match_goals)
   }
 
-  tibble(
+  tibble::tibble(
     match_id = as.integer(match_id),
     home_team = home_team,
     away_team = away_team,

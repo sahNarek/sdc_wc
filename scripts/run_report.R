@@ -22,6 +22,12 @@ format <- if (length(cli_args) >= 2) {
   "html"
 }
 
+providers <- if (length(cli_args) >= 3) {
+  cli_args[[3]]
+} else {
+  "statsbomb"
+}
+
 if (!format %in% c("html", "pdf", "both")) {
   stop("Format must be one of: html, pdf, both", call. = FALSE)
 }
@@ -32,6 +38,7 @@ load_project(root = root)
 outputs <- render_match_report(
   match_id = match_id,
   format = format,
+  providers = providers,
   root = root
 )
 

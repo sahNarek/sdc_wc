@@ -75,3 +75,50 @@ draw_pitch_half_attacking <- function(colour = "black", linewidth = 0.6) {
     list(coord_flip(xlim = c(85, 125)))
   )
 }
+
+# StatsBomb goal mouth: y 36–44 (8 yd), goal line x = 120
+GOAL_POST_Y_MIN <- 36
+GOAL_POST_Y_MAX <- 44
+GOAL_LINE_X <- 120
+GOAL_NET_MIN_X <- 117
+
+#' Front-on goal frame layers for UC8 net panel (width 8 yd, height 2.67 yd)
+draw_goal_net <- function(colour = "black",
+                          net_colour = "#E8EEF2",
+                          linewidth = 0.6) {
+  list(
+    annotate(
+      "rect", xmin = 0, xmax = 8, ymin = 0, ymax = 2.67,
+      fill = net_colour, colour = NA
+    ),
+    annotate(
+      "segment", x = 0, xend = 8, y = 2.67, yend = 2.67,
+      colour = colour, linewidth = linewidth * 1.4
+    ),
+    annotate(
+      "segment", x = 0, xend = 0, y = 0, yend = 2.67,
+      colour = colour, linewidth = linewidth * 1.4
+    ),
+    annotate(
+      "segment", x = 8, xend = 8, y = 0, yend = 2.67,
+      colour = colour, linewidth = linewidth * 1.4
+    ),
+    annotate(
+      "segment", x = 0, xend = 8, y = 0, yend = 0,
+      colour = colour, linewidth = linewidth
+    ),
+    # light net grid
+    annotate(
+      "segment",
+      x = seq(0, 8, by = 2), xend = seq(0, 8, by = 2),
+      y = 0, yend = 2.67,
+      colour = colour, linewidth = linewidth * 0.35, alpha = 0.25
+    ),
+    annotate(
+      "segment",
+      x = 0, xend = 8,
+      y = seq(0, 2.67, by = 0.67), yend = seq(0, 2.67, by = 0.67),
+      colour = colour, linewidth = linewidth * 0.35, alpha = 0.25
+    )
+  )
+}

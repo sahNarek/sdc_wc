@@ -1,16 +1,40 @@
-#' Source data-layer and visualization-layer R scripts
+#' Source core, provider, and visualization R scripts
 source_project_r <- function(root) {
-  data_dir <- file.path(root, "R")
-  viz_dir <- file.path(root, "R", "viz")
+  core_dir <- file.path(root, "R", "core")
+  provider_root <- file.path(root, "R", "providers")
 
-  data_files <- sort(list.files(data_dir, pattern = "\\.R$", full.names = TRUE))
+  core_order <- c(
+    "paths.R",
+    "schema.R",
+    "registry.R",
+    "build_all.R",
+    "load_match_data.R"
+  )
+  core_files <- file.path(core_dir, core_order)
+  core_files <- core_files[file.exists(core_files)]
+
+  provider_dirs <- sort(list.dirs(provider_root, recursive = FALSE, full.names = TRUE))
+  provider_files <- unlist(lapply(provider_dirs, function(dir) {
+    sort(list.files(dir, pattern = "\\.R$", full.names = TRUE))
+  }))
+
+  # Registry and build_all depend on provider build functions
+  pre_registry <- c(
+    file.path(core_dir, "paths.R"),
+    file.path(core_dir, "schema.R"),
+    provider_files,
+    file.path(core_dir, "registry.R"),
+    file.path(core_dir, "build_all.R"),
+    file.path(core_dir, "load_match_data.R"),
+    file.path(root, "R", "render_report.R")
+  )
+  pre_registry <- pre_registry[file.exists(pre_registry)]
+
+  viz_dir <- file.path(root, "R", "viz")
   viz_files <- sort(list.files(viz_dir, pattern = "\\.R$", full.names = TRUE))
   viz_files <- viz_files[!grepl("00_packages\\.R$", viz_files)]
 
-  paths_first <- data_files[grepl("01_paths\\.R$", data_files)]
-  other_data <- data_files[!grepl("01_paths\\.R$", data_files)]
-
-  invisible(lapply(c(paths_first, other_data, viz_files), source, local = globalenv()))
+  invisible(lapply(c(pre_registry, viz_files), source, local = globalenv()))
 }
 
 load_project <- function(install_packages = TRUE, root = NULL) {
@@ -27,8 +51,6 @@ load_project <- function(install_packages = TRUE, root = NULL) {
     }
     Sys.setenv(SDC_WC_ROOT = pkg_root)
   }
-
-  source(file.path(pkg_root, "R", "01_paths.R"), local = globalenv())
 
   if (install_packages) {
     source(file.path(pkg_root, "R", "viz", "00_packages.R"), local = globalenv())

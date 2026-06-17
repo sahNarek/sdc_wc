@@ -3,8 +3,8 @@
 #
 # Usage:
 #   Rscript scripts/run_all.R
-#   Rscript scripts/run_all.R 4036731 both
-#   Rscript scripts/run_all.R 4036731 html --skip-setup
+#   Rscript scripts/run_all.R 4036731 both statsbomb
+#   Rscript scripts/run_all.R 4036731 html all --skip-setup
 
 cli_args <- commandArgs(trailingOnly = TRUE)
 skip_setup <- "--skip-setup" %in% cli_args
@@ -12,6 +12,7 @@ cli_args <- cli_args[!cli_args %in% c("--skip-setup")]
 
 match_id <- if (length(cli_args) >= 1) cli_args[[1]] else "4036731"
 format <- if (length(cli_args) >= 2) cli_args[[2]] else "html"
+providers <- if (length(cli_args) >= 3) cli_args[[3]] else "statsbomb"
 
 file_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
 root <- if (length(file_arg)) {
@@ -44,7 +45,7 @@ if (!skip_setup) {
   run_step("setup_local.R", pdf_flag)
 }
 
-run_step("run_build.R")
-run_step("run_report.R", c(match_id, format))
+run_step("run_build.R", providers)
+run_step("run_report.R", c(match_id, format, providers))
 
 message("\n=== Pipeline complete ===")

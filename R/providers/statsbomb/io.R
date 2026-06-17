@@ -1,5 +1,11 @@
-#' List available match IDs under data_sample/matches/
-list_available_match_ids <- function(data_dir = get_data_sample_dir()) {
+#' List available match IDs under provider raw data
+list_available_match_ids <- function(provider = "statsbomb",
+                                     data_dir = NULL,
+                                     root = get_project_root()) {
+  if (is.null(data_dir)) {
+    data_dir <- get_provider_raw_dir(provider, root = root)
+  }
+
   match_root <- file.path(data_dir, "matches")
   if (!dir.exists(match_root)) {
     return(integer(0))
@@ -13,7 +19,7 @@ list_available_match_ids <- function(data_dir = get_data_sample_dir()) {
 #' Resolve highest version folder for a match file
 resolve_match_file <- function(match_id,
                                file_name,
-                               data_dir = get_data_sample_dir()) {
+                               data_dir = get_provider_raw_dir("statsbomb")) {
   match_dir <- file.path(data_dir, "matches", as.character(match_id))
   if (!dir.exists(match_dir)) {
     return(NULL)
@@ -39,7 +45,7 @@ resolve_match_file <- function(match_id,
 #' Read a match JSON file (events, lineups, stats, etc.)
 read_match_json <- function(match_id,
                             file_name,
-                            data_dir = get_data_sample_dir()) {
+                            data_dir = get_provider_raw_dir("statsbomb")) {
   path <- resolve_match_file(match_id, file_name, data_dir = data_dir)
   if (is.null(path)) {
     stop(
@@ -51,7 +57,7 @@ read_match_json <- function(match_id,
   jsonlite::fromJSON(path, simplifyVector = FALSE)
 }
 
-match_data_available <- function(match_id, data_dir = get_data_sample_dir()) {
+match_data_available <- function(match_id, data_dir = get_provider_raw_dir("statsbomb")) {
   !is.null(resolve_match_file(match_id, "events.json", data_dir = data_dir))
 }
 
@@ -71,7 +77,7 @@ get_match_display_meta <- function(match_id, root = get_project_root()) {
   }
 
   row <- game_ids %>%
-    filter(as.character(`Statsbomb ID`) == as.character(match_id))
+    dplyr::filter(as.character(.data[["Statsbomb ID"]]) == as.character(match_id))
 
   if (nrow(row) == 0) {
     return(NULL)

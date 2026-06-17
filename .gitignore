@@ -7,6 +7,7 @@
 *.utf8.md
 *.knit.md
 *.nb.html
+./all_data/
 
 # --- Raw & processed match data (do not commit) ---
 data_sample/

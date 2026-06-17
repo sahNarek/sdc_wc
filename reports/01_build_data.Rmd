@@ -31,7 +31,7 @@ message(
 
 wc_matches <- build_all_matches(
   match_ids = match_ids,
-  save_path = file.path(get_processed_dir(), "wc_matches.rda")
+  provider = "statsbomb"
 )
 ```
 
@@ -55,4 +55,4 @@ shots_goals <- compute_team_shots_goals(
 shots_goals
 ```
 
-Saved object: `data/processed/wc_matches.rda`
+Saved object: `data/processed/statsbomb/wc_matches.rda`

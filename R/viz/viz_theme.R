@@ -261,7 +261,8 @@ default_chart_titles <- function(meta) {
     defensive_heatmap = paste("Where teams defend:", matchup),
     pass_map_suffix = "completed passes into the penalty area",
     shot_map_suffix = "shot map",
-    shot_map_left_foot_suffix = "shot map (left foot)"
+    shot_map_left_foot_suffix = "shot map (left foot)",
+    shot_map_goal_net_suffix = "shot map and goal mouth"
   )
 }
 

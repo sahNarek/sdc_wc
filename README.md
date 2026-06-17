@@ -29,24 +29,26 @@ R project for **El Mundial de los Datos** (Sports Data Campus). It reads StatsBo
 The pipeline has three layers:
 
 ```
-JSON files (data_sample/)
+JSON files (data/raw/{provider}/ or legacy data_sample/)
         ↓
-  R data layer (R/*.R)          → parse, map names, combine matches
+  R provider layer (R/providers/{slug}/) → parse, map names
         ↓
-  wc_matches.rda (data/processed/)
+  Canonical schema (R/core/schema.R)
         ↓
-  R viz layer (R/viz/*.R)       → ggplot charts (UC1–UC7)
+  wc_matches.rda (data/processed/{provider}/)
         ↓
-  R Markdown reports (reports/) → HTML report + PNG exports (output/)
+  R viz layer (R/viz/*.R)       → ggplot charts (UC1–UC8)
+        ↓
+  R Markdown reports (reports/) → HTML/PDF + PNG exports (output/)
 ```
 
 | Step | What happens |
 |------|----------------|
-| **Ingest** | JSON is read from `data_sample/matches/{match_id}/v*/` (highest version folder wins). |
-| **Parse** | Events are flattened; lineups provide player nicknames; `game_ids.csv` supplies display names. |
-| **Store** | Combined objects are saved to `data/processed/wc_matches.rda`. |
-| **Visualize** | Generic functions in `R/viz/` take a `match_id` and return ggplot objects. |
-| **Publish** | `02_match_report_template.Rmd` knits a report and saves PNGs to `output/figures/{match_id}/`. |
+| **Ingest** | JSON is read per provider from `data/raw/{provider}/matches/{id}/v*/` (legacy `data_sample/` still works for StatsBomb). |
+| **Parse** | Provider-specific parsers flatten events; `game_ids.csv` supplies display names. |
+| **Store** | Combined objects are saved to `data/processed/{provider}/wc_matches.rda`. |
+| **Visualize** | Generic functions in `R/viz/` take a `match_id` and return ggplot objects (no provider names in chart text). |
+| **Publish** | `02_match_report_template.Rmd` knits per-provider report sections and saves PNGs to `output/figures/{match_id}/{provider}/`. |
 
 ---
 
@@ -96,7 +98,7 @@ PDF: `tinytex` (optional, via `--pdf` flag)
 
 ### Match data (not in git)
 
-You must provide `data_sample/` locally with StatsBomb JSON. See [Adding new match data](#adding-new-match-data).
+You must provide raw match JSON locally (StatsBomb under `data/raw/statsbomb/` or legacy `data_sample/`). See [Adding new match data](#adding-new-match-data).
 
 ---
 
@@ -120,9 +122,10 @@ Rscript scripts/setup_local.R --check
 **Full pipeline** (setup → build → report) in one command:
 
 ```bash
-Rscript scripts/run_all.R                  # match 4036731, HTML
-Rscript scripts/run_all.R 4036731 both   # HTML + PDF (needs --pdf setup)
-Rscript scripts/run_all.R 4036731 html --skip-setup   # skip setup if already done
+Rscript scripts/run_all.R                         # match 4036731, HTML, statsbomb
+Rscript scripts/run_all.R 4036731 both statsbomb  # HTML + PDF (needs --pdf setup)
+Rscript scripts/run_all.R 4036731 html all        # all providers with data
+Rscript scripts/run_all.R 4036731 html statsbomb --skip-setup
 ```
 
 ---
@@ -132,45 +135,32 @@ Rscript scripts/run_all.R 4036731 html --skip-setup   # skip setup if already do
 ```
 sdc_wc/
 ├── config/
-│   └── matches.yml              # Match IDs: development + assigned (pending)
+│   ├── matches.yml              # Match IDs + cross-provider mapping
+│   └── providers.yml            # Provider labels and enabled flags
 ├── data/
-│   └── processed/               # Generated .rda (gitignored)
-├── data_sample/                 # Raw JSON from SDC (gitignored — see below)
-│   ├── matches/{id}/v*/         # Per-match files
-│   ├── seasons/                 # Season-level metadata
-│   └── competitions/
-├── docs/
-│   ├── data_dictionary.md       # JSON schemas & join keys
-│   └── TODO_DOCKER.md           # Roadmap: Docker + credentials
+│   ├── raw/
+│   │   ├── statsbomb/matches/   # StatsBomb JSON (preferred)
+│   │   └── wyscout/             # Wyscout raw data (future)
+│   └── processed/
+│       └── {provider}/wc_matches.rda
+├── data_sample/                 # Legacy StatsBomb path (still supported)
 ├── R/
-│   ├── 01_paths.R               # Project paths & config loader
-│   ├── 02_io_json.R             # Read JSON, resolve versions
-│   ├── 03_parse_events.R        # Flatten events
-│   ├── 04_parse_lineups.R       # Player/team name mapping
-│   ├── 05_parse_stats.R         # Match & team metadata
-│   ├── 06_build_match.R         # Single-match pipeline
-│   ├── 07_build_all.R           # Build & save wc_matches.rda
-│   └── 08_render_report.R       # HTML / PDF report rendering
-├── R/viz/
-│   ├── 00_packages.R            # Dependencies & fonts
-│   ├── viz_theme.R              # Palette, theme, save_figure()
-│   ├── viz_pitch.R              # Pitch drawing helpers
-│   └── viz_use_case_01.R … 07.R # Reusable chart functions
+│   ├── core/                    # paths, schema, registry, build_all
+│   ├── providers/
+│   │   ├── statsbomb/           # StatsBomb ingestion
+│   │   └── wyscout/             # Wyscout scaffold
+│   ├── viz/                     # Reusable chart functions
+│   └── render_report.R
 ├── reports/
-│   ├── _setup.R                 # load_project() entry point
-│   ├── 01_build_data.Rmd        # Build & validate .rda
+│   ├── _setup.R
+│   ├── _provider_sections.Rmd   # UC blocks (included per provider)
+│   ├── 01_build_data.Rmd
 │   └── 02_match_report_template.Rmd
 ├── scripts/
-│   ├── setup_local.R            # One-time local environment setup
-│   ├── run_all.R                # setup + build + report (full pipeline)
-│   ├── run_build.R              # CLI: build data
-│   ├── run_report.R             # CLI: knit report (html | pdf | both)
-│   └── build_shot_icons.R       # Rebuild footprint PNGs from SVG
-├── output/                      # Generated reports & figures (gitignored)
-├── .env.example                 # Template for API / pipeline env vars
-├── game_ids.csv                 # Match schedule & StatsBomb IDs
-├── sdc_wc.Rproj
-└── README.md
+│   ├── setup_local.R
+│   ├── run_all.R                # setup + build + report
+│   ├── run_build.R              # CLI: build data (provider arg)
+│   └── run_report.R             # CLI: knit report (format + providers)
 ```
 
 ---
@@ -196,30 +186,37 @@ Rscript scripts/run_build.R
 
 ### 4. Generate report and figures
 
+```bash
+Rscript scripts/run_build.R statsbomb
+Rscript scripts/run_report.R 4036731 html statsbomb
+Rscript scripts/run_report.R 4036731 both statsbomb,wyscout
+Rscript scripts/run_report.R 4036731 html all
+```
+
 Or use the all-in-one script:
 
 ```bash
-Rscript scripts/run_all.R 4036731 both
+Rscript scripts/run_all.R 4036731 both statsbomb
 ```
 
 Individual steps:
 
 ```bash
-# HTML (default)
+# HTML (default provider: statsbomb)
 Rscript scripts/run_report.R
 
 # PDF (installs TinyTeX on first run)
-Rscript scripts/run_report.R 4036731 pdf
+Rscript scripts/run_report.R 4036731 pdf statsbomb
 
 # Both HTML and PDF
-Rscript scripts/run_report.R 4036731 both
+Rscript scripts/run_report.R 4036731 both statsbomb
 ```
 
 ### 5. Open outputs
 
-- HTML report: `output/reports/02_match_report_template.html`
-- PDF report: `output/reports/02_match_report_template.pdf`
-- Figures: `output/figures/4036731/`
+- HTML report: `output/reports/Germany_Curacao_statsbomb.html` (teams + provider suffix)
+- PDF report: `output/reports/Germany_Curacao_statsbomb.pdf`
+- Figures: `output/figures/4036731/statsbomb/`
 
 ### From RStudio
 
@@ -264,28 +261,31 @@ This loads packages, registers fonts (Barlow Condensed + Open Sans), and sources
 ### Step 2 — Build `wc_matches.rda`
 
 ```r
-wc_matches <- build_all_matches()
+wc_matches <- build_all_matches(provider = "statsbomb")
 # Or explicit IDs:
-wc_matches <- build_all_matches(match_ids = c(4036731, 4036724))
+wc_matches <- build_all_matches(match_ids = c(4036731, 4036724), provider = "statsbomb")
 ```
 
-The saved object contains:
+The saved object contains canonical tables (all providers use the same structure):
 
 | Object | Description |
 |--------|-------------|
-| `meta` | One row per match (teams, score, stadium, display names) |
-| `events` | Flattened event data with StatsBomb-style column aliases |
+| `meta` | One row per match (`match_id`, `provider`, `provider_match_id`, teams, score, …) |
+| `events` | Flattened event data with viz-layer column aliases |
 | `lineups` | Long-format lineups |
 | `players` | Player lookup with `player_display_name` |
 | `teams` | Team lookup |
 | `player_match_stats` | Per-player match metrics |
 | `team_match_stats` | Per-team match metrics |
+| `provider` | Provider slug for this `.rda` file |
 | `config` | Contents of `config/matches.yml` |
 
 Reload without rebuilding:
 
 ```r
-load("data/processed/wc_matches.rda")
+load("data/processed/statsbomb/wc_matches.rda")
+# or
+data <- load_match_data("statsbomb", 4036731)
 ```
 
 ### Step 3 — Create individual charts
@@ -299,7 +299,7 @@ print(p)
 
 save_figure(
   p,
-  "output/figures/4036731/Defensive_Heatmap_Germany_vs_Curacao.png",
+  "output/figures/4036731/statsbomb/Defensive_Heatmap_Germany_vs_Curacao.png",
   format = "16_9"
 )
 ```
@@ -313,23 +313,23 @@ rmarkdown::render(
   "reports/02_match_report_template.Rmd",
   output_dir = "output/reports",
   output_format = "html_document",
-  params = list(match_id = 4036731)
+  params = list(match_id = 4036731, providers = c("statsbomb"))
 )
 ```
 
 **PDF** (all charts embedded, same sections as HTML):
 
 ```r
-render_match_report(match_id = 4036731, format = "pdf")
+render_match_report(match_id = 4036731, format = "pdf", providers = "statsbomb")
 # or both formats at once:
-render_match_report(match_id = 4036731, format = "both")
+render_match_report(match_id = 4036731, format = "both", providers = "all")
 ```
 
 From the shell:
 
 ```bash
-Rscript scripts/run_report.R 4036731 pdf
-Rscript scripts/run_report.R 4036731 both
+Rscript scripts/run_report.R 4036731 pdf statsbomb
+Rscript scripts/run_report.R 4036731 both all
 ```
 
 PDF export uses **TinyTeX** (installed automatically on first PDF render). Requires an internet connection once for the LaTeX setup.
@@ -340,15 +340,21 @@ PDF export uses **TinyTeX** (installed automatically on first PDF render). Requi
 
 ### Where files go
 
-Place downloaded JSON under:
+Place downloaded JSON under (preferred):
 
 ```
-data_sample/matches/{STATS_BOMB_MATCH_ID}/v1/
+data/raw/statsbomb/matches/{STATS_BOMB_MATCH_ID}/v1/
 ├── events.json                 # required
 ├── lineups.json                # required
 ├── player_match_stats.json     # required
 ├── team_match_stats.json       # required
 └── 360_frames.json             # optional
+```
+
+Legacy path (still supported):
+
+```
+data_sample/matches/{STATS_BOMB_MATCH_ID}/v1/
 ```
 
 If updated data arrives in `v2/`, `v3/`, etc., drop files there — the pipeline **automatically uses the highest version** that contains each file.
@@ -483,8 +489,9 @@ Functions follow **Working-with-R.pdf** (StatsBomb guide). All accept `events_df
 | 6 | `viz_defensive_heatmap()` | Zone heatmap — single-hue gradient; `heat_color` configurable |
 | 7 | `viz_shot_map()` | Shot map (ggplot shapes) — `shot_color` configurable |
 | 7b | `viz_shot_map_icons()` | Shot map (footprint/head SVG icons) — `shot_color` configurable |
+| 8 | `viz_shot_map_goal_net()` | Shot map + goal-mouth panel with trajectories and xG labels |
 
-Reports export **six palette variants** per single-hue chart (Blue, Orange, Green, Red, Purple, Cyan), e.g. `Shot_Map_Icons_Musiala_Green.png`.
+Reports export **six palette variants** per single-hue chart (Blue, Orange, Green, Red, Purple, Cyan), e.g. `Shot_Map_Goal_Net_Musiala_Green.png`.
 
 Helper functions: `compute_*()` variants return dataframes; `top_goal_scorer()`, `top_left_foot_shooter()`, `iterate_sdc_palette()`, `save_figure()`, `figure_slug()`.
 

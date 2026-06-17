@@ -1,0 +1,8 @@
+# Data provider registry — add new providers here and in R/providers/{slug}/
+providers:
+  statsbomb:
+    enabled: true
+    display_label: "Event data"
+  wyscout:
+    enabled: true
+    display_label: "Tracking data"

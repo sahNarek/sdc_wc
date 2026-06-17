@@ -1,0 +1,258 @@
+## Shots and goals by team
+
+```{r uc1}
+shots_goals <- compute_team_shots_goals(events, match_id = match_id)
+
+p1 <- viz_team_shots_goals(
+  events,
+  match_id = match_id,
+  title = chart_titles$shots_goals,
+  subtitle = subtitle,
+  team_labels = team_labels
+)
+print(p1)
+save_figure(
+  p1,
+  file.path(fig_dir, paste0("Shots_Goals_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+```{r uc2}
+p2 <- viz_team_shots_bar(
+  shots_goals,
+  title = chart_titles$shots_bar,
+  subtitle = subtitle,
+  fill_colors = team_colors,
+  team_labels = team_labels
+)
+print(p2)
+save_figure(
+  p2,
+  file.path(fig_dir, paste0("Shots_Bar_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+## Shots per 90 minutes
+
+```{r uc3}
+p3 <- viz_player_shots_per90(
+  events,
+  player_match_stats_df = pms,
+  match_id = match_id,
+  min_minutes = 30,
+  top_n = 10,
+  title = chart_titles$shots_per90,
+  subtitle = subtitle,
+  team_labels = team_labels
+)
+print(p3)
+save_figure(
+  p3,
+  file.path(fig_dir, paste0("Shots_Per90_", slug, ".png")),
+  format = "4_5"
+)
+```
+
+## Passes into the penalty area
+
+```{r uc4}
+top_passer <- events %>%
+  filter(type.name == "Pass", is.na(pass.outcome.name), team.name == meta$home_team) %>%
+  count(player.id, player.name, sort = TRUE) %>%
+  slice(1)
+
+p4 <- viz_player_pass_map(
+  events,
+  player_id = top_passer$player.id,
+  match_id = match_id,
+  title = player_chart_title(
+    player_display_label(events, player_id = top_passer$player.id),
+    chart_titles$pass_map_suffix
+  ),
+  subtitle = subtitle,
+  box_only = TRUE
+)
+print(p4)
+save_figure(
+  p4,
+  file.path(fig_dir, paste0("Pass_Map_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+## Expected goal contribution
+
+```{r uc5}
+p5 <- viz_xg_xga_contribution(
+  events,
+  player_match_stats_df = pms,
+  match_id = match_id,
+  min_minutes = 30,
+  top_n = 12,
+  title = chart_titles$xg_contribution,
+  subtitle = subtitle
+)
+print(p5)
+save_figure(
+  p5,
+  file.path(fig_dir, paste0("xG_Contribution_", slug, ".png")),
+  format = "16_9"
+)
+```
+
+## Defensive action heatmaps
+
+```{r uc6, fig.height=5.2}
+iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+  p6 <- viz_defensive_heatmap(
+    events,
+    match_id = match_id,
+    title = paste(chart_titles$defensive_heatmap, paste0("(", color_name, ")")),
+    subtitle = subtitle,
+    team_labels = team_labels,
+    heat_color = color_hex
+  )
+  print(p6)
+  save_figure(
+    p6,
+    file.path(fig_dir, paste0("Defensive_Heatmap_", slug, "_", color_name, ".png")),
+    format = "16_9"
+  )
+})
+```
+
+## Shot map — top goal scorer
+
+```{r uc7, fig.height=7}
+scorer <- top_goal_scorer(events, match_id = match_id, team_name = meta$home_team)
+
+iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+  p7 <- viz_shot_map(
+    events,
+    player_id = scorer$player.id,
+    match_id = match_id,
+    title = player_chart_title(scorer$player_label, chart_titles$shot_map_suffix),
+    subtitle = subtitle,
+    shot_color = color_hex
+  )
+  print(p7)
+  save_figure(
+    p7,
+    file.path(fig_dir, paste0("Shot_Map_", slug, "_", color_name, ".png")),
+    format = "1_1"
+  )
+})
+```
+
+## Shot map — body-part icons
+
+```{r uc7-icons-setup, include=FALSE}
+featured_player <- resolve_featured_player(events, params$featured_icon_player)
+
+if (!is.null(params$featured_left_foot_player)) {
+  left_foot_player <- resolve_featured_player(events, params$featured_left_foot_player)
+} else {
+  left_foot_shooter <- top_left_foot_shooter(
+    events,
+    match_id = match_id,
+    team_name = meta$home_team
+  )
+  left_foot_player <- list(
+    player.id = left_foot_shooter$player.id,
+    player.name = left_foot_shooter$player.name,
+    player_label = left_foot_shooter$player_label,
+    slug = figure_slug(left_foot_shooter$player_label)
+  )
+}
+```
+
+### `r featured_player$player_label`
+
+```{r uc7-icons-musiala, fig.height=7}
+iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+  p7_icons <- viz_shot_map_icons(
+    events,
+    player_id = featured_player$player.id,
+    match_id = match_id,
+    title = player_chart_title(
+      featured_player$player_label,
+      chart_titles$shot_map_suffix
+    ),
+    subtitle = subtitle,
+    icon_set = "footprint",
+    shot_color = color_hex
+  )
+  print(p7_icons)
+  save_figure(
+    p7_icons,
+    file.path(
+      fig_dir,
+      paste0("Shot_Map_Icons_", featured_player$slug, "_", color_name, ".png")
+    ),
+    format = "1_1"
+  )
+})
+```
+
+### `r left_foot_player$player_label` — left foot
+
+```{r uc7-icons-left-foot, fig.height=7}
+iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+  p7_icons <- viz_shot_map_icons(
+    events,
+    player_id = left_foot_player$player.id,
+    match_id = match_id,
+    title = player_chart_title(
+      left_foot_player$player_label,
+      chart_titles$shot_map_left_foot_suffix
+    ),
+    subtitle = subtitle,
+    icon_set = "footprint",
+    shot_color = color_hex
+  )
+  print(p7_icons)
+  save_figure(
+    p7_icons,
+    file.path(
+      fig_dir,
+      paste0("Shot_Map_Icons_", left_foot_player$slug, "_", color_name, ".png")
+    ),
+    format = "1_1"
+  )
+})
+```
+
+## Shot map — pitch and goal mouth
+
+```{r uc8, fig.height=8}
+uc8_player <- resolve_featured_player(events, params$featured_icon_player)
+
+iterate_sdc_palette(function(color_name, color_hex, palette_key) {
+  p8 <- viz_shot_map_goal_net(
+    events,
+    player_id = uc8_player$player.id,
+    match_id = match_id,
+    title = player_chart_title(
+      uc8_player$player_label,
+      chart_titles$shot_map_goal_net_suffix
+    ),
+    subtitle = subtitle,
+    shot_color = color_hex
+  )
+  print(p8)
+  save_figure(
+    p8,
+    file.path(
+      fig_dir,
+      paste0("Shot_Map_Goal_Net_", uc8_player$slug, "_", color_name, ".png")
+    ),
+    format = "4_5"
+  )
+})
+```
+
+---
+
+Figures saved to: `r fig_dir`
