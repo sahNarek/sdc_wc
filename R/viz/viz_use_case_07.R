@@ -287,8 +287,8 @@ shot_trajectory_layers <- function(data) {
       ),
       colour = traj_data$traj_colour,
       linetype = "dashed",
-      linewidth = 0.45,
-      alpha = 0.85
+      linewidth = 0.55,
+      alpha = 0.9
     )
   )
 }
@@ -301,6 +301,7 @@ build_shot_map_pitch_icon_layers <- function(data,
                                              icon_size = 0.095,
                                              xg_limits = c(0, 0.8),
                                              show_trajectories = FALSE,
+                                             show_xg_labels = FALSE,
                                              icon_set = "footprint") {
   if (!requireNamespace("ggimage", quietly = TRUE)) {
     install.packages("ggimage", repos = "https://cloud.r-project.org")
@@ -325,6 +326,38 @@ build_shot_map_pitch_icon_layers <- function(data,
       size = icon_size
     )
   ))
+
+  if (isTRUE(show_xg_labels) && nrow(data) > 0) {
+    label_data <- data %>%
+      add_pitch_shot_xg_label_positions(icon_size = icon_size) %>%
+      dplyr::mutate(
+        xg_label = format(round(.data$`shot.statsbomb_xg`, 2), nsmall = 2),
+        label_colour = xg_to_hex(
+          .data$`shot.statsbomb_xg`,
+          colors = shot_colors,
+          limits = xg_limits
+        )
+      )
+
+    layers <- c(layers, list(
+      geom_text(
+        data = label_data,
+        aes(
+          x = .data$label_x,
+          y = .data$label_y,
+          label = .data$xg_label,
+          colour = .data$label_colour,
+          vjust = .data$label_vjust,
+          hjust = .data$label_hjust
+        ),
+        size = 3.1,
+        fontface = "bold",
+        family = SDC_FONTS$body,
+        show.legend = FALSE
+      ),
+      scale_colour_identity()
+    ))
+  }
 
   layers
 }
@@ -378,19 +411,85 @@ build_shot_map_pitch_layers <- function(data,
 
 #' Add trajectory endpoints for UC8 pitch panel
 #'
-#' On-goal shots extend to the goal line at \code{shot.end_location.y}; others
-#' use the recorded end coordinate. Requires attacking-half pitch coords from
-#' \code{draw_pitch_half_attacking()} (no y-axis reverse).
-add_shot_trajectory_endpoints <- function(data) {
+#' Goals and on-target saves extend to the goal line at \code{shot.end_location.y};
+#' other outcomes use the recorded end coordinate. Requires attacking-half pitch
+#' coords from \code{draw_pitch_half_attacking()} (no y-axis reverse).
+add_shot_trajectory_endpoints <- function(data,
+                                          goal_line_x = GOAL_LINE_X,
+                                          goal_post_y_min = GOAL_POST_Y_MIN,
+                                          goal_post_y_max = GOAL_POST_Y_MAX) {
   data %>%
     dplyr::mutate(
       traj_xend = dplyr::if_else(
-        .data$on_goal_panel,
-        GOAL_LINE_X,
-        .data$`shot.end_location.x`
+        !is.na(.data$`shot.end_location.x`) & !is.na(.data$`shot.end_location.y`),
+        .env$goal_line_x,
+        dplyr::coalesce(.data$`shot.end_location.x`, .env$goal_line_x)
       ),
-      traj_yend = .data$`shot.end_location.y`
+      traj_yend = dplyr::coalesce(
+        .data$`shot.end_location.y`,
+        .data$`location.y`
+      )
     )
+}
+
+#' Compute xG-label positions beside pitch shot icons (avoids overlaps)
+add_pitch_shot_xg_label_positions <- function(shot_data,
+                                              icon_size = 0.095,
+                                              pitch_x_min = 85,
+                                              goal_line_x = GOAL_LINE_X) {
+  size_scale <- icon_size / 0.095
+  icon_clear_x <- 2.9 * size_scale
+  icon_clear_y <- 2.6 * size_scale
+  cluster_step_y <- 1.35 * size_scale
+  cluster_step_x <- 0.75 * size_scale
+  pitch_y_min <- GOAL_POST_Y_MIN - 2
+  pitch_y_max <- GOAL_POST_Y_MAX + 2
+
+  shot_data %>%
+    dplyr::mutate(
+      .side = dplyr::case_when(
+        .data$`location.y` >= 40.5 ~ -1L,
+        .data$`location.y` <= 39.5 ~ 1L,
+        TRUE ~ 1L
+      ),
+      label_x = .data$`location.x` - .env$icon_clear_x,
+      label_y = .data$`location.y` + .data$.side * .env$icon_clear_y,
+      label_hjust = dplyr::if_else(.data$.side > 0L, 0, 1),
+      label_vjust = 0.5,
+      .label_cluster = paste0(
+        round(.data$`location.x`, 0),
+        "_",
+        round(.data$`location.y`, 0)
+      )
+    ) %>%
+    dplyr::group_by(.data$.label_cluster) %>%
+    dplyr::arrange(.data$`shot.statsbomb_xg`, .by_group = TRUE) %>%
+    dplyr::mutate(
+      .cluster_i = dplyr::row_number(),
+      .side = dplyr::if_else(
+        dplyr::n() > 1L & .data$.cluster_i %% 2L == 0L,
+        -.data$.side,
+        .data$.side
+      ),
+      label_y = .data$`location.y` + .data$.side * (
+        .env$icon_clear_y + (.data$.cluster_i - 1) * .env$cluster_step_y
+      ),
+      label_x = .data$`location.x` - .env$icon_clear_x -
+        (.data$.cluster_i - 1) * .env$cluster_step_x,
+      label_hjust = dplyr::if_else(.data$.side > 0L, 0, 1)
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      label_x = pmin(
+        pmax(.data$label_x, .env$pitch_x_min + 0.6),
+        .data$`location.x` - .env$icon_clear_x * 0.55
+      ),
+      label_y = pmin(
+        pmax(.data$label_y, .env$pitch_y_min),
+        .env$pitch_y_max
+      )
+    ) %>%
+    dplyr::select(-dplyr::starts_with("."))
 }
 
 #' Shared shot filtering for UC7 variants
@@ -400,7 +499,8 @@ filter_shot_map_data <- function(events_df,
                                  team_name = NULL,
                                  both_teams = FALSE,
                                  match_id = NULL,
-                                 exclude_penalties = TRUE) {
+                                 exclude_penalties = TRUE,
+                                 restrict_to_attacking_third = TRUE) {
   data <- events_df %>%
     filter(type.name == "Shot")
 
@@ -437,11 +537,13 @@ filter_shot_map_data <- function(events_df,
     stop("No shots found for the selected filter.", call. = FALSE)
   }
 
-  data <- data %>%
-    filter(location.x >= 85, location.x <= 120)
+  if (isTRUE(restrict_to_attacking_third)) {
+    data <- data %>%
+      filter(location.x >= 85, location.x <= 120)
 
-  if (nrow(data) == 0) {
-    stop("No shots found in the attacking third for the selected filter.", call. = FALSE)
+    if (nrow(data) == 0) {
+      stop("No shots found in the attacking third for the selected filter.", call. = FALSE)
+    }
   }
 
   data

@@ -285,6 +285,7 @@ default_chart_titles <- function(meta) {
     shot_map_suffix = "shot map",
     shot_map_left_foot_suffix = "shot map (left foot)",
     shot_map_goal_net_suffix = "shot map and goal mouth",
+    shot_map_goal_net_title = NULL,
     team_shot_map_suffix = "team shot map",
     match_shot_map_suffix = "match shot map",
     team_shot_map_goal_net_suffix = "team shot map and goal mouth",

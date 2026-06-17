@@ -189,6 +189,66 @@ ensure_ball_icon <- function(root = get_project_root()) {
   invisible(png_path)
 }
 
+#' Clear cached tinted gloves icons (e.g. after SVG update)
+invalidate_gloves_icon_cache <- function() {
+  keys <- ls(envir = ICON_COLOR_CACHE, all.names = TRUE)
+  gloves_keys <- grep("^gloves\\|", keys, value = TRUE)
+  if (length(gloves_keys) > 0) {
+    rm(list = gloves_keys, envir = ICON_COLOR_CACHE)
+  }
+  invisible(NULL)
+}
+
+#' Ensure gloves.svg is rasterised to PNG (refreshes when SVG is newer)
+ensure_gloves_icon <- function(root = get_project_root()) {
+  icons_dir <- get_icons_dir(root)
+  png_path <- file.path(icons_dir, "gloves.png")
+  svg_path <- file.path(icons_dir, "gloves.svg")
+  if (!file.exists(svg_path)) {
+    stop("Gloves icon not found: ", svg_path, call. = FALSE)
+  }
+
+  needs_refresh <- !file.exists(png_path) ||
+    file.info(svg_path)$mtime > file.info(png_path)$mtime
+
+  if (!isTRUE(needs_refresh)) {
+    return(invisible(png_path))
+  }
+
+  if (!requireNamespace("rsvg", quietly = TRUE)) {
+    install.packages("rsvg", repos = "https://cloud.r-project.org")
+  }
+
+  invalidate_gloves_icon_cache()
+  rsvg::rsvg_png(svg_path, png_path, width = 200, height = 200)
+  invisible(png_path)
+}
+
+#' Path to the rasterised gloves icon
+gloves_icon_path <- function(root = get_project_root()) {
+  ensure_gloves_icon(root)
+  file.path(get_icons_dir(root), "gloves.png")
+}
+
+#' Cached gloves icon tinted with a solid colour
+colored_gloves_icon_path <- function(hex_color, root = get_project_root()) {
+  key <- paste("gloves", hex_color, sep = "|")
+  if (exists(key, envir = ICON_COLOR_CACHE, inherits = FALSE)) {
+    return(get(key, envir = ICON_COLOR_CACHE))
+  }
+
+  colored <- colorize_body_part_icon(gloves_icon_path(root), hex_color)
+  cache_dir <- file.path(tempdir(), "sdc_shot_icons")
+  dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+  out <- file.path(
+    cache_dir,
+    paste0(gsub("[^A-Za-z0-9]+", "_", key), ".png")
+  )
+  magick::image_write(colored, out)
+  assign(key, out, envir = ICON_COLOR_CACHE)
+  out
+}
+
 #' Path to the rasterised ball icon
 ball_icon_path <- function(root = get_project_root()) {
   ensure_ball_icon(root)
@@ -214,24 +274,42 @@ colored_ball_icon_path <- function(hex_color, root = get_project_root()) {
   out
 }
 
-#' Goal-net ball colour from shot outcome (green = goal, red = otherwise)
-goal_net_ball_color <- function(outcome) {
+#' Goal-net marker colour from shot outcome (green = goal, orange = saved, red = other)
+goal_net_marker_color <- function(outcome) {
   if (identical(outcome, "Goal")) {
     SDC_PALETTE[["green"]]
+  } else if (identical(outcome, "Saved")) {
+    SDC_PALETTE[["orange"]]
   } else {
     SDC_PALETTE[["red"]]
   }
 }
 
-#' Add green/red ball icon paths for the goal-mouth panel
+#' Goal-net ball colour from shot outcome (green = goal, red = otherwise)
+goal_net_ball_color <- goal_net_marker_color
+
+#' Add goal-mouth icon paths (ball for goals / misses, gloves for saves)
 add_goal_net_ball_icons <- function(net_data) {
+  ensure_ball_icon()
+  ensure_gloves_icon()
+
   net_data %>%
     dplyr::mutate(
       marker_fill = purrr::map_chr(
         .data$`shot.outcome.name`,
-        goal_net_ball_color
+        goal_net_marker_color
       ),
-      colored_icon = purrr::map_chr(.data$marker_fill, colored_ball_icon_path)
+      colored_icon = purrr::map2_chr(
+        .data$`shot.outcome.name`,
+        .data$marker_fill,
+        function(outcome, fill) {
+          if (identical(outcome, "Saved")) {
+            colored_gloves_icon_path(fill)
+          } else {
+            colored_ball_icon_path(fill)
+          }
+        }
+      )
     )
 }
 
@@ -242,32 +320,67 @@ plot_goal_mouth_ball_legend <- function() {
   }
 
   ensure_ball_icon()
+  ensure_gloves_icon()
 
-  legend_df <- tibble::tibble(
-    label = c("Goal", "No goal"),
-    color = c(SDC_PALETTE[["green"]], SDC_PALETTE[["red"]]),
-    x = c(1, 2.15),
-    y_icon = 1,
-    y_label = 0.52
-  ) %>%
-    dplyr::mutate(
-      icon = purrr::map_chr(.data$color, colored_ball_icon_path)
-    )
+  legend_df <- shot_outcome_legend_df()
 
   ggplot2::ggplot(legend_df) +
+    ggplot2::annotate(
+      "text",
+      x = 2.35,
+      y = 1.2,
+      label = "Shot outcome",
+      family = SDC_FONTS$body,
+      size = 4,
+      colour = "#333333"
+    ) +
     ggimage::geom_image(
       ggplot2::aes(x = .data$x, y = .data$y_icon, image = .data$icon),
-      size = 0.38
+      size = 0.34
     ) +
     ggplot2::geom_text(
       ggplot2::aes(x = .data$x, y = .data$y_label, label = .data$label),
       family = SDC_FONTS$body,
-      size = 4.2,
+      size = 3.8,
       colour = "#333333"
     ) +
-    ggplot2::coord_cartesian(xlim = c(0.35, 2.8), ylim = c(0.35, 1.12), clip = "off") +
+    ggplot2::coord_cartesian(xlim = c(0.1, 4.6), ylim = c(0.35, 1.32), clip = "off") +
     ggplot2::theme_void() +
     ggplot2::theme(plot.margin = ggplot2::margin(2, 0, 4, 0))
+}
+
+#' Data frame for shot-outcome icon legend (goal / saved / missed)
+shot_outcome_legend_df <- function(x_centers = c(6.35, 7.75, 9.15),
+                                   y_icon = 0.68,
+                                   y_label = 0.54) {
+  ensure_ball_icon()
+  ensure_gloves_icon()
+
+  tibble::tibble(
+    label = c("goal", "saved", "missed"),
+    outcome = c("Goal", "Saved", "Off T"),
+    color = c(
+      SDC_PALETTE[["green"]],
+      SDC_PALETTE[["orange"]],
+      SDC_PALETTE[["red"]]
+    ),
+    x = x_centers,
+    y_icon = y_icon,
+    y_label = y_label
+  ) %>%
+    dplyr::mutate(
+      icon = purrr::map2_chr(
+        .data$outcome,
+        .data$color,
+        function(outcome, fill) {
+          if (identical(outcome, "Saved")) {
+            colored_gloves_icon_path(fill)
+          } else {
+            colored_ball_icon_path(fill)
+          }
+        }
+      )
+    )
 }
 
 #' Add per-shot coloured icon paths to shot data
@@ -332,6 +445,245 @@ body_part_label <- function(body_part) {
   )
 }
 
+#' Shared legend title styling (Open Sans Regular — style guide legends/captions)
+legend_title_ggpar <- function() {
+  list(
+    family = SDC_FONTS$body,
+    size = 4,
+    colour = "#333333",
+    fontface = "plain"
+  )
+}
+
+#' Shared legend item label styling (Open Sans Regular)
+legend_label_ggpar <- function() {
+  list(
+    family = SDC_FONTS$body,
+    size = 4,
+    colour = "#333333",
+    fontface = "plain"
+  )
+}
+
+#' Single-row shot-map legend with aligned title and label baselines
+plot_shot_map_legend_row <- function(shot_colors,
+                                    limits = c(0, 0.8),
+                                    icon_color = SDC_PALETTE[["blue"]],
+                                    icon_set = "footprint",
+                                    show_body_part = TRUE,
+                                    show_xg = TRUE,
+                                    show_trajectory = FALSE,
+                                    show_ball = FALSE) {
+  needs_images <- isTRUE(show_body_part) || isTRUE(show_ball)
+  if (needs_images && !requireNamespace("ggimage", quietly = TRUE)) {
+    install.packages("ggimage", repos = "https://cloud.r-project.org")
+  }
+
+  title_style <- legend_title_ggpar()
+  label_style <- legend_label_ggpar()
+  title_y <- 0.88
+  marker_y <- 0.55
+  label_y <- 0.28
+
+  section_keys <- c(
+    if (isTRUE(show_body_part)) "body",
+    if (isTRUE(show_xg)) "xg",
+    if (isTRUE(show_trajectory)) "outcome",
+    if (isTRUE(show_ball)) "ball"
+  )
+  section_centers <- if (length(section_keys) == 1) {
+    5
+  } else if (length(section_keys) == 2) {
+    c(2.8, 7.2)
+  } else if (length(section_keys) == 3) {
+    c(1.75, 5, 8.25)
+  } else {
+    seq(1.5, 8.5, length.out = length(section_keys))
+  }
+  names(section_centers) <- section_keys
+
+  p <- ggplot2::ggplot() +
+    ggplot2::coord_cartesian(xlim = c(0, 10), ylim = c(0.12, 1.02), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(4, 6, 4, 6))
+
+  if (isTRUE(show_body_part)) {
+    cx <- section_centers[["body"]]
+    body_spread <- 1.12
+    body_df <- tibble::tibble(
+      body_part = c("Head", "Left Foot", "Right Foot"),
+      x = cx + c(-body_spread, 0, body_spread),
+      y = marker_y
+    ) %>%
+      dplyr::mutate(
+        label = vapply(body_part, body_part_label, character(1)),
+        icon = purrr::map2_chr(
+          body_part,
+          rep(icon_color, 3L),
+          function(bp, col) colored_body_part_icon_path(bp, col, icon_set = icon_set)
+        )
+      )
+
+    p <- p +
+      ggplot2::annotate(
+        "text",
+        x = cx,
+        y = title_y,
+        label = "Body part used",
+        family = title_style$family,
+        size = title_style$size,
+        colour = title_style$colour,
+        fontface = title_style$fontface
+      ) +
+      ggimage::geom_image(
+        data = body_df,
+        ggplot2::aes(x = .data$x, y = .data$y, image = .data$icon),
+        size = 0.27
+      ) +
+      ggplot2::geom_text(
+        data = body_df,
+        ggplot2::aes(x = .data$x, y = label_y, label = .data$label),
+        family = label_style$family,
+        size = 3.5,
+        colour = label_style$colour,
+        fontface = label_style$fontface
+      )
+  }
+
+  if (isTRUE(show_xg)) {
+    cx <- section_centers[["xg"]]
+    bar_half <- 1.05
+    bar_x <- seq(cx - bar_half, cx + bar_half, length.out = 80)
+    bar_w <- diff(bar_x)[1]
+    bar_df <- tibble::tibble(
+      x = bar_x,
+      y = marker_y,
+      xg = seq(limits[1], limits[2], length.out = length(bar_x))
+    )
+
+    p <- p +
+      ggplot2::annotate(
+        "text",
+        x = cx,
+        y = title_y,
+        label = "Expected goals (xG)",
+        family = title_style$family,
+        size = title_style$size,
+        colour = title_style$colour,
+        fontface = title_style$fontface
+      ) +
+      ggplot2::geom_tile(
+        data = bar_df,
+        ggplot2::aes(
+          x = .data$x,
+          y = .data$y,
+          width = bar_w,
+          height = 0.18,
+          fill = .data$xg
+        )
+      ) +
+      ggplot2::scale_fill_gradientn(
+        colours = shot_colors,
+        limits = limits,
+        oob = scales::squish,
+        guide = "none"
+      ) +
+      ggplot2::annotate(
+        "text",
+        x = cx - bar_half,
+        y = label_y,
+        label = format(limits[1], nsmall = 1),
+        family = label_style$family,
+        size = label_style$size,
+        colour = label_style$colour,
+        fontface = label_style$fontface
+      ) +
+      ggplot2::annotate(
+        "text",
+        x = cx + bar_half,
+        y = label_y,
+        label = format(limits[2], nsmall = 1),
+        family = label_style$family,
+        size = label_style$size,
+        colour = label_style$colour,
+        fontface = label_style$fontface
+      )
+  }
+
+  if (isTRUE(show_trajectory)) {
+    cx <- section_centers[["outcome"]]
+    cols <- shot_trajectory_outcome_colors()
+    traj_df <- tibble::tibble(
+      label = c("Goal", "Saved", "Missed"),
+      line_colour = unname(cols),
+      x = cx + c(-1.25, 0, 1.25)
+    )
+
+    p <- p +
+      ggplot2::annotate(
+        "text",
+        x = cx,
+        y = title_y,
+        label = "Shot outcome",
+        family = title_style$family,
+        size = title_style$size,
+        colour = title_style$colour,
+        fontface = title_style$fontface
+      ) +
+      ggplot2::geom_segment(
+        data = traj_df,
+        ggplot2::aes(
+          x = .data$x - 0.28,
+          y = marker_y,
+          xend = .data$x + 0.28,
+          yend = marker_y,
+          colour = I(.data$line_colour)
+        ),
+        linetype = "dashed",
+        linewidth = 0.95,
+        alpha = 0.95
+      ) +
+      ggplot2::geom_text(
+        data = traj_df,
+        ggplot2::aes(x = .data$x, y = label_y, label = .data$label),
+        family = label_style$family,
+        size = label_style$size,
+        colour = label_style$colour,
+        fontface = label_style$fontface
+      )
+  }
+
+  if (isTRUE(show_ball)) {
+    cx <- section_centers[["ball"]]
+    ball_df <- tibble::tibble(
+      label = c("Goal", "No goal"),
+      color = c(SDC_PALETTE[["green"]], SDC_PALETTE[["red"]]),
+      x = cx + c(-0.55, 0.55),
+      y = marker_y
+    ) %>%
+      dplyr::mutate(
+        icon = purrr::map_chr(.data$color, colored_ball_icon_path)
+      )
+
+    p <- p +
+      ggimage::geom_image(
+        data = ball_df,
+        ggplot2::aes(x = .data$x, y = .data$y, image = .data$icon),
+        size = 0.1
+      ) +
+      ggplot2::geom_text(
+        data = ball_df,
+        ggplot2::aes(x = .data$x, y = label_y, label = .data$label),
+        family = label_style$family,
+        size = label_style$size,
+        colour = label_style$colour,
+        fontface = label_style$fontface
+      )
+  }
+
+  p
+}
+
 #' Small legend plot with body-part icons (neutral tint for shape reference)
 plot_body_part_legend <- function(icon_color = SDC_PALETTE[["blue"]],
                                   icon_set = "footprint") {
@@ -339,10 +691,13 @@ plot_body_part_legend <- function(icon_color = SDC_PALETTE[["blue"]],
     install.packages("ggimage", repos = "https://cloud.r-project.org")
   }
 
+  title_style <- legend_title_ggpar()
+  label_style <- legend_label_ggpar()
+
   legend_df <- tibble::tibble(
     body_part = c("Head", "Left Foot", "Right Foot"),
     x = c(1, 2.35, 3.7),
-    y = 1
+    y = 0.88
   ) %>%
     dplyr::mutate(
       label = vapply(body_part, body_part_label, character(1)),
@@ -354,24 +709,35 @@ plot_body_part_legend <- function(icon_color = SDC_PALETTE[["blue"]],
     )
 
   ggplot2::ggplot(legend_df, ggplot2::aes(x = .data$x, y = .data$y)) +
+    ggplot2::annotate(
+      "text",
+      x = 2.35,
+      y = 1.42,
+      label = "Body part used",
+      family = title_style$family,
+      size = title_style$size,
+      colour = title_style$colour,
+      fontface = title_style$fontface
+    ) +
     ggimage::geom_image(ggplot2::aes(image = .data$icon), size = 0.44) +
     ggplot2::geom_text(
       ggplot2::aes(label = .data$label),
-      y = 0.6,
-      family = SDC_FONTS$body,
-      size = 4.6,
-      colour = "#333333"
+      y = 0.48,
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour,
+      fontface = label_style$fontface
     ) +
-    ggplot2::coord_cartesian(xlim = c(0.35, 4.35), ylim = c(0.35, 1.25), clip = "off") +
+    ggplot2::coord_cartesian(xlim = c(0.35, 4.35), ylim = c(0.35, 1.5), clip = "off") +
     ggplot2::theme_void() +
-    ggplot2::theme(plot.margin = ggplot2::margin(6, 0, 4, 0))
+    ggplot2::theme(plot.margin = ggplot2::margin(8, 0, 4, 0))
 }
 
 #' Legend for outcome-coloured shot trajectories (single row)
 plot_shot_outcome_legend <- function() {
   cols <- shot_trajectory_outcome_colors()
   legend_df <- tibble::tibble(
-    label = c("Goal", "Saved", "Other"),
+    label = c("Goal", "Saved", "Missed"),
     line_colour = unname(cols),
     x = c(1, 2, 3)
   )
@@ -401,7 +767,7 @@ plot_shot_outcome_legend <- function() {
     ggplot2::theme(plot.margin = ggplot2::margin(10, 2, 6, 2))
 }
 
-#' Combined bottom-row legend: xG bar, goal balls, and trajectory dashes
+#' Combined bottom-row legend: xG bar and trajectory outcome dashes
 plot_shot_map_bottom_legend <- function(shot_colors,
                                       limits = c(0, 0.8),
                                       show_xg = TRUE,
@@ -417,6 +783,8 @@ plot_shot_map_bottom_legend <- function(shot_colors,
     ggplot2::theme(plot.margin = ggplot2::margin(6, 8, 6, 8))
 
   if (isTRUE(show_xg)) {
+    title_style <- legend_title_ggpar()
+    label_style <- legend_label_ggpar()
     bar_n <- 80
     bar_x <- seq(0.45, 2.55, length.out = bar_n)
     bar_df <- tibble::tibble(
@@ -432,9 +800,10 @@ plot_shot_map_bottom_legend <- function(shot_colors,
         x = 1.5,
         y = 0.9,
         label = "Expected goals (xG)",
-        family = SDC_FONTS$body,
-        size = 4,
-        colour = "#333333"
+        family = title_style$family,
+        size = title_style$size,
+        colour = title_style$colour,
+        fontface = title_style$fontface
       ) +
       ggplot2::geom_tile(
         data = bar_df,
@@ -457,18 +826,20 @@ plot_shot_map_bottom_legend <- function(shot_colors,
         x = 0.45,
         y = 0.26,
         label = format(limits[1], nsmall = 1),
-        family = SDC_FONTS$body,
-        size = 3.6,
-        colour = "#333333"
+        family = label_style$family,
+        size = label_style$size,
+        colour = label_style$colour,
+        fontface = label_style$fontface
       ) +
       ggplot2::annotate(
         "text",
         x = 2.55,
         y = 0.26,
         label = format(limits[2], nsmall = 1),
-        family = SDC_FONTS$body,
-        size = 3.6,
-        colour = "#333333"
+        family = label_style$family,
+        size = label_style$size,
+        colour = label_style$colour,
+        fontface = label_style$fontface
       )
   }
 
@@ -500,14 +871,26 @@ plot_shot_map_bottom_legend <- function(shot_colors,
   }
 
   if (isTRUE(show_trajectory)) {
+    title_style <- legend_title_ggpar()
+    label_style <- legend_label_ggpar()
     cols <- shot_trajectory_outcome_colors()
     traj_df <- tibble::tibble(
-      label = c("Goal", "Saved", "Other"),
+      label = c("Goal", "Saved", "Missed"),
       line_colour = unname(cols),
       x = c(6.35, 7.75, 9.15)
     )
 
     p <- p +
+      ggplot2::annotate(
+        "text",
+        x = 7.75,
+        y = 0.9,
+        label = "Shot outcome",
+        family = title_style$family,
+        size = title_style$size,
+        colour = title_style$colour,
+        fontface = title_style$fontface
+      ) +
       ggplot2::geom_segment(
         data = traj_df,
         ggplot2::aes(
@@ -525,16 +908,17 @@ plot_shot_map_bottom_legend <- function(shot_colors,
         data = traj_df,
         ggplot2::aes(x = .data$x + 0.03, y = 0.5, label = .data$label),
         hjust = 0,
-        family = SDC_FONTS$body,
-        size = 4,
-        colour = "#333333"
+        family = label_style$family,
+        size = label_style$size,
+        colour = label_style$colour,
+        fontface = label_style$fontface
       )
   }
 
   p
 }
 
-#' Combine shot map with body-part legend (top) and xG legend (bottom)
+#' Combine shot map with a single aligned legend row beneath the pitch
 assemble_shot_map <- function(shot_plot,
                               icon_set = "footprint",
                               icon_color = SDC_PALETTE[["blue"]],
@@ -555,43 +939,20 @@ assemble_shot_map <- function(shot_plot,
     )
   }
 
-  body_legend <- plot_body_part_legend(icon_set = icon_set, icon_color = icon_color)
-
-  body_row <- patchwork::wrap_plots(
-    patchwork::plot_spacer(),
-    body_legend,
-    patchwork::plot_spacer(),
-    ncol = 3,
-    widths = c(0.65, 1.7, 0.65)
+  legend_block <- plot_shot_map_legend_row(
+    shot_colors = shot_colors,
+    limits = xg_limits,
+    icon_color = icon_color,
+    icon_set = icon_set,
+    show_body_part = TRUE,
+    show_xg = isTRUE(show_xg_legend),
+    show_trajectory = isTRUE(show_trajectory_legend),
+    show_ball = isTRUE(show_goal_net_ball_legend)
   )
 
-  show_bottom <- isTRUE(show_xg_legend) ||
-    isTRUE(show_goal_net_ball_legend) ||
-    isTRUE(show_trajectory_legend)
-
-  legend_rows <- list(body_row)
-  legend_heights <- c(0.125)
-
-  if (isTRUE(show_bottom)) {
-    bottom_row <- plot_shot_map_bottom_legend(
-      shot_colors = shot_colors,
-      limits = xg_limits,
-      show_xg = isTRUE(show_xg_legend),
-      show_ball = isTRUE(show_goal_net_ball_legend),
-      show_trajectory = isTRUE(show_trajectory_legend)
-    )
-    legend_rows <- c(legend_rows, list(bottom_row))
-    legend_heights <- c(legend_heights, 0.14)
-  }
-
-  legend_block <- patchwork::wrap_plots(
-    legend_rows,
+  patchwork::wrap_plots(
+    list(shot_plot, legend_block),
     ncol = 1,
-    heights = legend_heights
+    heights = c(1, 0.16)
   )
-
-  panels <- list(shot_plot, legend_block)
-  heights <- c(1, sum(legend_heights) + 0.02)
-
-  patchwork::wrap_plots(panels, ncol = 1, heights = heights)
 }

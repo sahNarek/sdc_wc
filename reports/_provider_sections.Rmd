@@ -145,10 +145,11 @@ render_player_shot_map_goal_net <- function(player_info) {
       events,
       player_id = player_info$player.id,
       match_id = match_id,
-      title = player_chart_title(
-        player_info$player_label,
-        chart_titles$shot_map_goal_net_suffix
-      ),
+      title = chart_titles$shot_map_goal_net_title %||%
+        player_chart_title(
+          player_info$player_label,
+          chart_titles$shot_map_goal_net_suffix
+        ),
       subtitle = subtitle,
       shot_color = color_hex,
       show_trajectories = TRUE,

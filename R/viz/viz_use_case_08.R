@@ -2,9 +2,10 @@
 default_goal_outcome_colors <- function(goal_color = SDC_PALETTE[["blue"]]) {
   list(
     Goal = goal_color,
-    Saved = SDC_PALETTE[["green"]],
+    Saved = SDC_PALETTE[["orange"]],
     "Off T" = "#333333",
-    Post = SDC_PALETTE[["orange"]]
+    Post = SDC_PALETTE[["orange"]],
+    Wayward = "#333333"
   )
 }
 
@@ -66,26 +67,107 @@ map_shot_to_goal_panel <- function(end_y,
                                    goal_height_m = GOAL_HEIGHT_M,
                                    clip = TRUE) {
   goal_width_sb <- goal_y_max - goal_y_min
-  net_x <- (end_y - goal_y_min) / goal_width_sb * goal_width_m
-  net_y <- end_z
+  net_x_raw <- (end_y - goal_y_min) / goal_width_sb * goal_width_m
+  net_y_raw <- end_z
 
   if (!clip) {
-    return(tibble::tibble(net_x = net_x, net_y = net_y))
+    return(tibble::tibble(net_x = net_x_raw, net_y = net_y_raw))
   }
 
   tibble::tibble(
-    net_x = pmin(pmax(net_x, 0), goal_width_m),
-    net_y = pmin(pmax(net_y, 0), goal_height_m),
-    net_x_raw = net_x,
-    net_y_raw = net_y,
-    clipped = (net_x < 0 | net_x > goal_width_m | net_y < 0 | net_y > goal_height_m)
+    net_x = pmin(pmax(net_x_raw, 0), goal_width_m),
+    net_y = pmin(pmax(net_y_raw, 0), goal_height_m),
+    net_x_raw = net_x_raw,
+    net_y_raw = net_y_raw,
+    clipped = (
+      net_x_raw < 0 | net_x_raw > goal_width_m |
+        net_y_raw < 0 | net_y_raw > goal_height_m
+    )
   )
 }
 
-#' Shots with valid end locations; split net-panel vs pitch-only (blocked / no height)
+#' Goal-panel marker positions: off-target shots sit just outside the frame
+#'
+#' Off-target markers use a fixed offset from the nearest post/crossbar corner
+#' (SofaScore-style) rather than true end coordinates, which can sit far away.
+add_goal_net_display_positions <- function(net_data,
+                                           goal_width_m = GOAL_WIDTH_M,
+                                           goal_height_m = GOAL_HEIGHT_M,
+                                           icon_size = 0.22,
+                                           miss_offset_x_frac = 0.038,
+                                           miss_offset_y_frac = 0.11) {
+  off_x <- goal_width_m * miss_offset_x_frac
+  off_y <- goal_height_m * miss_offset_y_frac
+  off_y_low <- goal_height_m * 0.07
+  icon_r <- goal_height_m * icon_size * 0.42
+  off_target <- c("Off T", "Wayward", "Post")
+
+  net_data %>%
+    dplyr::mutate(
+      .miss = .data$`shot.outcome.name` %in% off_target & .data$clipped,
+      .base_x = dplyr::case_when(
+        .data$.miss & .data$net_x_raw < 0 ~ -off_x,
+        .data$.miss & .data$net_x_raw > goal_width_m ~ goal_width_m + off_x,
+        TRUE ~ .data$net_x_raw
+      ),
+      .base_y = dplyr::case_when(
+        .data$.miss & .data$net_y_raw > goal_height_m ~ goal_height_m + off_y,
+        .data$.miss & .data$net_y_raw < 0 ~ -off_y_low,
+        .data$.miss ~ pmin(pmax(.data$net_y_raw, 0), goal_height_m),
+        .data$`shot.outcome.name` == "Saved" &
+          .data$net_y_raw >= goal_height_m - 0.08 ~
+          goal_height_m - icon_r * 0.15,
+        TRUE ~ .data$net_y_raw
+      ),
+      .corner = dplyr::case_when(
+        !.data$.miss ~ NA_character_,
+        .data$.base_x < 0 & .data$.base_y > goal_height_m * 0.85 ~ "top_left",
+        .data$.base_x > goal_width_m & .data$.base_y > goal_height_m * 0.85 ~
+          "top_right",
+        .data$.base_y > goal_height_m ~ "top_mid",
+        .data$.base_y < 0 ~ "bottom_mid",
+        .data$.base_x < 0 ~ "left_mid",
+        .data$.base_x > goal_width_m ~ "right_mid",
+        TRUE ~ "mid"
+      )
+    ) %>%
+    dplyr::group_by(.data$.corner) %>%
+    dplyr::mutate(
+      .corner_n = dplyr::n(),
+      .corner_i = dplyr::row_number(),
+      .spread = (.data$.corner_i - (.data$.corner_n + 1) / 2)
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      net_x = dplyr::if_else(
+        .data$.miss,
+        .data$.base_x + .data$.spread * goal_width_m * 0.055,
+        .data$net_x_raw
+      ),
+      net_y = dplyr::if_else(
+        .data$.miss | (.data$`shot.outcome.name` == "Saved" &
+          .data$net_y_raw >= goal_height_m - 0.08),
+        .data$.base_y + dplyr::if_else(
+          .data$.miss,
+          dplyr::case_when(
+            .data$.corner %in% c("top_left", "top_right", "top_mid") ~
+              abs(.data$.spread) * goal_height_m * 0.07,
+            TRUE ~ abs(.data$.spread) * goal_height_m * 0.045
+          ),
+          0
+        ),
+        .data$net_y_raw
+      )
+    ) %>%
+    dplyr::select(-dplyr::starts_with("."))
+}
+
+#' Shots with valid end locations for the goal panel; others stay pitch-only
+#'
+#' Any shot with \code{shot.end_location.x/y/z} is mapped onto the front-on goal
+#' panel (including off-target and saved attempts that stop short of the line).
+#' Shots without end-height data remain pitch-only.
 filter_shots_for_goal_net <- function(data,
-                                      net_outcomes = c("Goal", "Saved", "Off T"),
-                                      net_min_x = GOAL_NET_MIN_X,
                                       goal_width_m = GOAL_WIDTH_M,
                                       goal_height_m = GOAL_HEIGHT_M) {
   if (!"shot.end_location.x" %in% names(data)) {
@@ -116,8 +198,8 @@ filter_shots_for_goal_net <- function(data,
 
   on_net <- data %>%
     dplyr::filter(
-      .data$`shot.outcome.name` %in% net_outcomes,
-      .data$`shot.end_location.x` >= net_min_x,
+      !is.na(.data$`shot.end_location.x`),
+      !is.na(.data$`shot.end_location.y`),
       !is.na(.data$`shot.end_location.z`)
     )
 
@@ -132,21 +214,22 @@ filter_shots_for_goal_net <- function(data,
     on_net <- dplyr::bind_cols(on_net, mapped) %>%
       dplyr::mutate(on_goal_panel = TRUE)
   } else {
-    on_net <- on_net %>% dplyr::mutate(
-      on_goal_panel = TRUE,
-      net_x = double(),
-      net_y = double(),
-      net_x_raw = double(),
-      net_y_raw = double(),
-      clipped = logical()
-    )
+    on_net <- on_net %>%
+      dplyr::mutate(
+        on_goal_panel = TRUE,
+        net_x = double(),
+        net_y = double(),
+        net_x_raw = double(),
+        net_y_raw = double(),
+        clipped = logical()
+      )
   }
 
   pitch_only <- data %>%
     dplyr::filter(
-      !(.data$`shot.outcome.name` %in% net_outcomes &
-          .data$`shot.end_location.x` >= net_min_x &
-          !is.na(.data$`shot.end_location.z`))
+      is.na(.data$`shot.end_location.x`) |
+        is.na(.data$`shot.end_location.y`) |
+        is.na(.data$`shot.end_location.z`)
     ) %>%
     dplyr::mutate(
       on_goal_panel = FALSE,
@@ -193,6 +276,72 @@ compute_shot_summary_stats <- function(data, subject_label = NULL) {
   )
 }
 
+#' Compact horizontal bar chart for UC8 shot summary strip (SDC palette)
+plot_shot_summary_bar <- function(stats, subject_label = NULL) {
+  df <- tibble::tibble(
+    metric = factor(
+      c("Shots", "On target", "Outside box", "Goals"),
+      levels = c("Shots", "On target", "Outside box", "Goals")
+    ),
+    value = c(
+      stats$total_shots,
+      stats$on_target,
+      stats$goals_outside_box,
+      stats$goals
+    )
+  )
+
+  fills <- c(
+    Goals = SDC_PALETTE[["green"]],
+    `Outside box` = SDC_PALETTE[["orange"]],
+    `On target` = SDC_PALETTE[["blue"]],
+    Shots = SDC_PALETTE[["purple"]]
+  )
+
+  p <- ggplot(df, aes(x = .data$value, y = .data$metric, fill = .data$metric)) +
+    geom_col(width = 0.68, colour = NA) +
+    geom_text(
+      aes(label = .data$value),
+      hjust = -0.2,
+      family = SDC_FONTS$body,
+      size = 3.2,
+      colour = "#333333"
+    ) +
+    scale_fill_manual(values = fills, guide = "none") +
+    scale_x_continuous(expand = expansion(mult = c(0, 0.14))) +
+    labs(x = NULL, y = NULL) +
+    theme_sdc(base_size = 9) +
+    theme(
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(
+        family = SDC_FONTS$body,
+        size = 8.5,
+        colour = "#333333"
+      ),
+      axis.ticks = element_blank(),
+      panel.grid = element_blank(),
+      plot.margin = margin(0, 10, 0, 10)
+    )
+
+  if (!is.null(subject_label) && nzchar(subject_label)) {
+    p <- p +
+      labs(title = toupper(subject_label)) +
+      theme(
+        plot.title = element_text(
+          family = SDC_FONTS$title,
+          face = "bold",
+          size = 10,
+          colour = "#111111",
+          hjust = 0,
+          margin = margin(b = 1)
+        ),
+        plot.margin = margin(0, 10, 0, 10)
+      )
+  }
+
+  p
+}
+
 #' Compute minute-label positions that clear the ball icon and goal frame
 add_goal_net_minute_label_positions <- function(net_data,
                                               goal_width_m = GOAL_WIDTH_M,
@@ -208,8 +357,10 @@ add_goal_net_minute_label_positions <- function(net_data,
       .above_y = .data$net_y + .env$icon_r + .env$text_gap,
       .below_y = .data$net_y - .env$icon_r - .env$text_gap,
       label_y = dplyr::case_when(
+        .data$.above_y > .env$goal_height_m + .env$icon_r * 0.25 ~
+          .data$.above_y,
         .data$.above_y > .env$goal_height_m - .env$frame_pad ~
-          .env$goal_height_m + .env$text_gap * 1.35,
+          .env$goal_height_m + .env$icon_r + .env$text_gap * 0.85,
         .data$net_y < .env$icon_r + .env$frame_pad ~ .data$.above_y,
         TRUE ~ .data$.above_y
       ),
@@ -224,8 +375,25 @@ add_goal_net_minute_label_positions <- function(net_data,
         .data$net_x < .env$side_pad ~ 0,
         .data$net_x > .env$goal_width_m - .env$side_pad ~ 1,
         TRUE ~ 0.5
+      ),
+      .label_cluster = paste0(
+        round(.data$net_x, 1),
+        "_",
+        round(.data$net_y, 1)
       )
     ) %>%
+    dplyr::group_by(.data$.label_cluster) %>%
+    dplyr::arrange(.data$minute, .by_group = TRUE) %>%
+    dplyr::mutate(
+      .cluster_i = dplyr::row_number(),
+      .cluster_n = dplyr::n(),
+      label_y = .data$label_y +
+        (.data$.cluster_i - 1) * .env$goal_height_m * 0.085,
+      label_x = .data$label_x + (.data$.cluster_i - 1) *
+        .env$goal_width_m * 0.05 *
+        dplyr::if_else(.data$.cluster_i %% 2L == 0L, 1, -1)
+    ) %>%
+    dplyr::ungroup() %>%
     dplyr::select(-dplyr::starts_with("."))
 }
 
@@ -249,14 +417,16 @@ viz_shot_map_goal_net <- function(events_df,
                                   goal_height_m = GOAL_HEIGHT_M,
                                   goal_shape_by = c("binary", "outcome"),
                                   show_minute_labels = TRUE,
+                                  show_xg_labels = TRUE,
                                   show_trajectories = TRUE,
                                   show_summary = TRUE,
-                                  net_outcomes = c("Goal", "Saved", "Off T"),
                                   xg_limits = c(0, 0.8),
                                   outcome_colors = NULL,
-                                  goal_panel_width_frac = 0.54,
-                                  goal_section_height = 0.43,
+                                  goal_panel_width_frac = 0.72,
+                                  goal_section_height = 0.42,
                                   goal_display_tallness = 2.35,
+                                  show_goal_net_legend = FALSE,
+                                  show_pitch_subtitle = FALSE,
                                   marker_size = 4.5,
                                   icon_size = 0.095,
                                   icon_set = "footprint",
@@ -274,12 +444,12 @@ viz_shot_map_goal_net <- function(events_df,
     team_name = team_name,
     both_teams = both_teams,
     match_id = match_id,
-    exclude_penalties = exclude_penalties
+    exclude_penalties = exclude_penalties,
+    restrict_to_attacking_third = FALSE
   )
 
   data <- filter_shots_for_goal_net(
     data,
-    net_outcomes = net_outcomes,
     goal_width_m = goal_width_m,
     goal_height_m = goal_height_m
   )
@@ -329,17 +499,24 @@ viz_shot_map_goal_net <- function(events_df,
         isTRUE(.data$clipped) ~ 0.55,
         TRUE ~ 0.8
       )
+    ) %>%
+    add_goal_net_display_positions(
+      goal_width_m = goal_width_m,
+      goal_height_m = goal_height_m,
+      icon_size = goal_net_icon_size
     )
 
   if (isTRUE(goal_net_use_ball_icons)) {
     ensure_ball_icon()
+    ensure_gloves_icon()
     net_data <- add_goal_net_ball_icons(net_data)
   }
 
   goal_layout <- goal_panel_layout(
     goal_width_m = goal_width_m,
     goal_height_m = goal_height_m,
-    display_tallness = goal_display_tallness
+    display_tallness = goal_display_tallness,
+    icon_size = goal_net_icon_size
   )
 
   goal_marker_size <- marker_size * 1.08
@@ -386,7 +563,6 @@ viz_shot_map_goal_net <- function(events_df,
   }
 
   goal_plot <- goal_plot +
-    labs(subtitle = "Goal mouth (shot end position)") +
     coord_fixed(
       ratio = goal_layout$coord_ratio,
       xlim = goal_layout$xlim,
@@ -397,8 +573,13 @@ viz_shot_map_goal_net <- function(events_df,
     theme_sdc() +
     theme(
       aspect.ratio = goal_layout$aspect_ratio,
-      plot.subtitle = element_text(hjust = 0.5, face = "bold", size = rel(1.05)),
-      plot.margin = margin(t = 10, r = 2, b = 2, l = 2),
+      plot.subtitle = element_text(
+        hjust = 0.5,
+        face = "bold",
+        size = rel(1.05),
+        margin = margin(b = 1)
+      ),
+      plot.margin = margin(t = 4, r = 2, b = 0, l = 2),
       axis.text = element_blank(),
       axis.title = element_blank(),
       axis.ticks = element_blank(),
@@ -451,8 +632,13 @@ viz_shot_map_goal_net <- function(events_df,
       icon_set = icon_set
     )
 
+  pitch_x_min <- min(
+    85,
+    floor(min(pitch_data$location.x, na.rm = TRUE) - 1.5)
+  )
+
   pitch_plot <- ggplot() +
-    draw_pitch_half_attacking() +
+    draw_pitch_half_attacking(x_min = pitch_x_min) +
     build_shot_map_pitch_icon_layers(
       data = pitch_data,
       shot_colors = shot_colors,
@@ -461,20 +647,26 @@ viz_shot_map_goal_net <- function(events_df,
       icon_size = icon_size,
       xg_limits = xg_limits,
       show_trajectories = show_trajectories,
+      show_xg_labels = isTRUE(show_xg_labels),
       icon_set = icon_set
     ) +
-    labs(
-      subtitle = "Shot origins and trajectories",
-      x = NULL,
-      y = NULL
-    ) +
+    labs(x = NULL, y = NULL) +
     theme_sdc() +
     theme(
       legend.position = "none",
-      plot.subtitle = element_text(hjust = 0.5, face = "bold", size = rel(1.05)),
+      plot.subtitle = element_blank(),
+      plot.margin = margin(t = 0, r = 2, b = 0, l = 2),
       axis.text = element_blank(),
       axis.title = element_blank()
     )
+
+  if (isTRUE(show_pitch_subtitle)) {
+    pitch_plot <- pitch_plot +
+      labs(subtitle = "Shot origins and trajectories") +
+      theme(
+        plot.subtitle = element_text(hjust = 0.5, face = "bold", size = rel(1.05))
+      )
+  }
 
   pitch_plot <- assemble_shot_map(
     pitch_plot,
@@ -483,7 +675,6 @@ viz_shot_map_goal_net <- function(events_df,
     shot_colors = shot_colors,
     xg_limits = xg_limits,
     show_xg_legend = is.null(team_colors),
-    show_goal_net_ball_legend = FALSE,
     show_trajectory_legend = isTRUE(show_trajectories)
   )
 
@@ -491,15 +682,8 @@ viz_shot_map_goal_net <- function(events_df,
     install.packages("patchwork", repos = "https://cloud.r-project.org")
   }
 
-  goal_legend <- if (isTRUE(goal_net_use_ball_icons)) {
-    plot_goal_mouth_ball_legend()
-  } else {
-    NULL
-  }
-
   goal_row <- wrap_goal_panel_block(
     goal_plot,
-    legend_plot = goal_legend,
     width_frac = goal_panel_width_frac
   )
 
@@ -508,41 +692,19 @@ viz_shot_map_goal_net <- function(events_df,
   heights <- c(goal_section_height, pitch_height)
 
   if (show_summary) {
-    summary_plot <- ggplot() +
-      annotate(
-        "text",
-        x = 0.5,
-        y = 0.5,
-        label = stats$label,
-        size = 4.1,
-        fontface = "bold",
-        family = SDC_FONTS$body
-      ) +
-      theme_void() +
-      coord_cartesian(clip = "off")
+    summary_plot <- plot_shot_summary_bar(stats, subject_label = label)
 
     panels <- c(list(summary_plot), panels)
-    summary_height <- 0.07
+    summary_height <- 0.13
     scale <- (1 - summary_height)
     heights <- c(summary_height, goal_section_height * scale, pitch_height * scale)
   }
 
   combined <- patchwork::wrap_plots(panels, ncol = 1, heights = heights) +
+    patchwork::plot_layout(heights = heights, guides = "keep") +
     patchwork::plot_annotation(
       title = title %||% player_chart_title(label, title_suffix),
       subtitle = subtitle,
-      caption = if (isTRUE(goal_net_use_ball_icons)) {
-        paste(
-          "Pitch icons show body part; colour reflects xG.",
-          "Penalties excluded."
-        )
-      } else {
-        paste(
-          "Goal panel: circle = goal, square = no goal.",
-          "Pitch icons show body part; colour reflects xG (team hue when both sides shown).",
-          "Penalties excluded."
-        )
-      },
       theme = theme_sdc()
     )
 
