@@ -7,7 +7,10 @@
 *.utf8.md
 *.knit.md
 *.nb.html
-./all_data/
+# --- Local multi-provider data bundle (do not commit) ---
+all_data/
+all_data /
+all_data*.zip
 
 # --- Raw & processed match data (do not commit) ---
 data_sample/
