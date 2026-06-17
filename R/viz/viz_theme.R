@@ -305,6 +305,87 @@ player_chart_title <- function(player_label, suffix = "shot map") {
   paste0(player_label, ": ", suffix)
 }
 
+#' Article-style chart title (Barlow Condensed Bold per style guide)
+article_chart_title <- function(subject, descriptor) {
+  paste0(subject, ": ", descriptor)
+}
+
+#' Article-style caption / alt-text line (Open Sans Regular)
+article_chart_caption <- function(...) {
+  paste(..., sep = " ")
+}
+
+#' Resolve opponent display name from match meta
+resolve_match_opponent <- function(meta, team_name) {
+  if (is.null(meta) || is.null(team_name)) {
+    return(NULL)
+  }
+  if (identical(team_name, meta$home_team)) {
+    meta$display_away
+  } else {
+    meta$display_home
+  }
+}
+
+#' Default article labels for a player chart
+article_player_chart_labels <- function(meta,
+                                        player_label,
+                                        chart_descriptor,
+                                        detail = NULL,
+                                        team_name = NULL) {
+  opponent <- resolve_match_opponent(meta, team_name)
+  descriptor <- if (!is.null(opponent) && nzchar(opponent)) {
+    paste0(chart_descriptor, " vs ", opponent)
+  } else {
+    chart_descriptor
+  }
+
+  list(
+    title = article_chart_title(player_label, descriptor),
+    subtitle = if (!is.null(meta)) match_chart_subtitle(meta) else NULL,
+    caption = if (!is.null(detail)) article_chart_caption(detail) else NULL
+  )
+}
+
+#' Article figure typography overrides (titles: Barlow; body/captions: Open Sans)
+theme_sdc_article <- function(base_size = 13) {
+  theme_sdc(base_size = base_size) +
+    theme(
+      plot.title = element_text(
+        family = SDC_FONTS$title,
+        face = "bold",
+        size = base_size + 9,
+        colour = "#111111",
+        hjust = 0.5,
+        margin = margin(b = 4)
+      ),
+      plot.subtitle = element_text(
+        family = SDC_FONTS$body,
+        size = base_size,
+        colour = "#444444",
+        hjust = 0.5,
+        margin = margin(b = 10)
+      ),
+      plot.caption = element_text(
+        family = SDC_FONTS$body,
+        size = base_size - 1,
+        colour = "#555555",
+        hjust = 0.5,
+        margin = margin(t = 4)
+      ),
+      legend.title = element_text(
+        family = SDC_FONTS$body,
+        size = base_size - 1,
+        colour = "#333333"
+      ),
+      legend.text = element_text(
+        family = SDC_FONTS$body,
+        size = base_size - 2,
+        colour = "#333333"
+      )
+    )
+}
+
 #' Display label for a player from event rows
 player_display_label <- function(events_df, player_id = NULL, player_name = NULL) {
   data <- events_df

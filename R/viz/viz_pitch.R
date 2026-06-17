@@ -153,6 +153,16 @@ draw_pitch_goal_net_layers <- function(colour = "#222222",
   )
 }
 
+#' Outer touchline border (drawn above heatmap tiles)
+draw_pitch_outer_border <- function(colour = "black", linewidth = 1.0) {
+  list(
+    annotate(
+      "rect", xmin = 0, xmax = 120, ymin = 0, ymax = 80,
+      fill = NA, colour = colour, linewidth = linewidth
+    )
+  )
+}
+
 #' Attacking-third pitch (goal at top) for shot maps
 #'
 #' Uses \code{coord_flip} without \code{scale_y_reverse} so StatsBomb \code{y}

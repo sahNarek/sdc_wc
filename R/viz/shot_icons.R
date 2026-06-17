@@ -918,6 +918,235 @@ plot_shot_map_bottom_legend <- function(shot_colors,
   p
 }
 
+#' Draw a gradient bar segment (no title or tick labels)
+heatmap_share_legend_bar <- function(p,
+                                     cx,
+                                     heat_colors,
+                                     marker_y,
+                                     bar_half = 1.5,
+                                     bar_height = 0.09) {
+  n_seg <- 80
+  fill_cols <- grDevices::colorRampPalette(heat_colors)(n_seg)
+  seg_w <- (2 * bar_half) / n_seg
+  bar_df <- tibble::tibble(
+    x = seq(cx - bar_half + seg_w / 2, cx + bar_half - seg_w / 2, length.out = n_seg),
+    y = marker_y,
+    fill_colour = fill_cols
+  )
+
+  p +
+    ggplot2::geom_rect(
+      data = bar_df,
+      ggplot2::aes(
+        xmin = .data$x - seg_w / 2,
+        xmax = .data$x + seg_w / 2,
+        ymin = .data$y - bar_height,
+        ymax = .data$y + bar_height
+      ),
+      fill = bar_df$fill_colour,
+      colour = NA
+    )
+}
+
+#' Add one heatmap share legend section centred at \code{cx}
+heatmap_share_legend_section <- function(p,
+                                         cx,
+                                         heat_colors,
+                                         title,
+                                         limits = c(0, 0.2),
+                                         breaks = NULL,
+                                         bar_half = 1.2) {
+  if (is.null(breaks)) {
+    max_pct <- limits[2] * 100
+    step <- if (max_pct <= 12) 2 else if (max_pct <= 20) 5 else 10
+    breaks <- seq(0, limits[2], by = step / 100)
+    breaks <- breaks[breaks <= limits[2] + 1e-9]
+  }
+
+  title_style <- legend_title_ggpar()
+  label_style <- legend_label_ggpar()
+  title_y <- 0.88
+  marker_y <- 0.55
+  label_y <- 0.28
+  tick_df <- tibble::tibble(
+    x = cx - bar_half + (breaks - limits[1]) / diff(limits) * (2 * bar_half),
+    label = scales::percent(breaks, accuracy = 1)
+  )
+
+  p <- heatmap_share_legend_bar(
+    p,
+    cx = cx,
+    heat_colors = heat_colors,
+    marker_y = marker_y,
+    bar_half = bar_half
+  )
+
+  p +
+    ggplot2::annotate(
+      "text",
+      x = cx,
+      y = title_y,
+      label = title,
+      family = title_style$family,
+      size = title_style$size,
+      colour = title_style$colour,
+      fontface = title_style$fontface
+    ) +
+    ggplot2::geom_text(
+      data = tick_df,
+      ggplot2::aes(x = .data$x, y = label_y, label = .data$label),
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour,
+      fontface = label_style$fontface
+    )
+}
+
+#' Single-row heatmap share legend with title above the gradient bar
+plot_heatmap_share_legend_row <- function(heat_colors,
+                                          title = "Share of attacking actions",
+                                          limits = c(0, 0.2),
+                                          breaks = NULL) {
+  p <- ggplot2::ggplot() +
+    ggplot2::coord_cartesian(xlim = c(0, 10), ylim = c(0.12, 1.02), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(4, 6, 4, 6))
+
+  heatmap_share_legend_section(
+    p,
+    cx = 5,
+    heat_colors = heat_colors,
+    title = title,
+    limits = limits,
+    breaks = breaks,
+    bar_half = 1.5
+  )
+}
+
+#' Stacked dual-team heatmap legend with one title and shared tick labels
+plot_heatmap_share_legend_stacked <- function(top_colors,
+                                              bottom_colors,
+                                              title = "Share of attacking actions",
+                                              limits = c(0, 0.2),
+                                              breaks = NULL) {
+  if (is.null(breaks)) {
+    max_pct <- limits[2] * 100
+    step <- if (max_pct <= 12) 2 else if (max_pct <= 20) 5 else 10
+    breaks <- seq(0, limits[2], by = step / 100)
+    breaks <- breaks[breaks <= limits[2] + 1e-9]
+  }
+
+  title_style <- legend_title_ggpar()
+  label_style <- legend_label_ggpar()
+  cx <- 5
+  bar_half <- 1.5
+  title_y <- 0.94
+  top_bar_y <- 0.66
+  bottom_bar_y <- 0.46
+  label_y <- 0.22
+  tick_df <- tibble::tibble(
+    x = cx - bar_half + (breaks - limits[1]) / diff(limits) * (2 * bar_half),
+    label = scales::percent(breaks, accuracy = 1)
+  )
+
+  p <- ggplot2::ggplot() +
+    ggplot2::coord_cartesian(xlim = c(0, 10), ylim = c(0.08, 1.02), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(4, 6, 4, 6))
+
+  p <- heatmap_share_legend_bar(
+    p,
+    cx = cx,
+    heat_colors = top_colors,
+    marker_y = top_bar_y,
+    bar_half = bar_half
+  )
+  p <- heatmap_share_legend_bar(
+    p,
+    cx = cx,
+    heat_colors = bottom_colors,
+    marker_y = bottom_bar_y,
+    bar_half = bar_half
+  )
+
+  p +
+    ggplot2::annotate(
+      "text",
+      x = cx,
+      y = title_y,
+      label = title,
+      family = title_style$family,
+      size = title_style$size,
+      colour = title_style$colour,
+      fontface = title_style$fontface
+    ) +
+    ggplot2::geom_text(
+      data = tick_df,
+      ggplot2::aes(x = .data$x, y = label_y, label = .data$label),
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour,
+      fontface = label_style$fontface
+    )
+}
+
+#' Two team heatmap legends side by side
+plot_heatmap_share_legend_pair <- function(left_colors,
+                                           right_colors,
+                                           left_title,
+                                           right_title,
+                                           left_limits = c(0, 0.2),
+                                           right_limits = c(0, 0.2)) {
+  p <- ggplot2::ggplot() +
+    ggplot2::coord_cartesian(xlim = c(0, 10), ylim = c(0.12, 1.02), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(4, 6, 4, 6))
+
+  p <- heatmap_share_legend_section(
+    p,
+    cx = 2.5,
+    heat_colors = left_colors,
+    title = left_title,
+    limits = left_limits,
+    bar_half = 1.2
+  )
+  heatmap_share_legend_section(
+    p,
+    cx = 7.5,
+    heat_colors = right_colors,
+    title = right_title,
+    limits = right_limits,
+    bar_half = 1.2
+  )
+}
+
+#' Combine binned heatmap with a single aligned legend row beneath the pitch
+assemble_player_heatmap <- function(heatmap_plot,
+                                    heat_colors,
+                                    legend_title = "Share of attacking actions",
+                                    legend_limits = NULL,
+                                    legend_height_frac = 0.14) {
+  if (!requireNamespace("patchwork", quietly = TRUE)) {
+    install.packages("patchwork", repos = "https://cloud.r-project.org")
+  }
+
+  if (is.null(legend_limits)) {
+    legend_limits <- c(0, 0.2)
+  }
+
+  legend_block <- plot_heatmap_share_legend_row(
+    heat_colors = heat_colors,
+    title = legend_title,
+    limits = legend_limits
+  )
+
+  patchwork::wrap_plots(
+    list(heatmap_plot, legend_block),
+    ncol = 1,
+    heights = c(1, legend_height_frac)
+  )
+}
+
 #' Combine shot map with a single aligned legend row beneath the pitch
 assemble_shot_map <- function(shot_plot,
                               icon_set = "footprint",
