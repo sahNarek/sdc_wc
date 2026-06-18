@@ -62,6 +62,8 @@ flatten_event <- function(event, match_id) {
     location_y = coord_y(event$location),
     pass_end_location_x = coord_x(if (!is.null(pass)) pass$end_location else NULL),
     pass_end_location_y = coord_y(if (!is.null(pass)) pass$end_location else NULL),
+    pass_recipient_id = nested_id(if (!is.null(pass)) pass$recipient else NULL),
+    pass_recipient_name = nested_name(if (!is.null(pass)) pass$recipient else NULL),
     pass_outcome_name = nested_name(if (!is.null(pass)) pass$outcome else NULL),
     pass_shot_assist = if (!is.null(pass) && !is.null(pass$shot_assist)) {
       as.logical(pass$shot_assist)
@@ -115,6 +117,8 @@ add_statsbomb_aliases <- function(events_df) {
       `location.y` = .data$location_y,
       `pass.end_location.x` = .data$pass_end_location_x,
       `pass.end_location.y` = .data$pass_end_location_y,
+      `pass.recipient.id` = .data$pass_recipient_id,
+      `pass.recipient.name` = .data$pass_recipient_name,
       `pass.outcome.name` = .data$pass_outcome_name,
       `pass.shot_assist` = .data$pass_shot_assist,
       `pass.goal_assist` = .data$pass_goal_assist,
