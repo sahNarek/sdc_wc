@@ -1,0 +1,17 @@
+﻿sequence_order,event_id,event_index,minute,second,team,event_type,player,recipient,start_x,start_y,end_x,end_y,pass_length,xg,outcome
+1,a5c1d192-2759-5013-aba0-6beb190945ac,885,27,28,Scotland,Carry,Scott McTominay,,33.6,46.7,35.1,35.2,,,
+2,8699fa0d-a00a-4e63-868e-e25819e5515e,886,27,30,Scotland,Pass,Scott McTominay,Andrew Robertson,35.1,35.2,47.8,13.6,25.06,,
+3,eb079100-2488-5133-a946-cb34f3192740,888,27,32,Scotland,Carry,Andrew Robertson,,47.8,13.6,43.3,10.7,,,
+4,7d6a0a3f-0f9b-4311-96a7-32bec83ac87f,889,27,34,Scotland,Pass,Andrew Robertson,Jack Hendry,43.3,10.7,28.6,32.9,26.63,,
+5,6198cd38-983f-56dd-ae19-e10cf0b882ae,891,27,35,Scotland,Carry,Jack Hendry,,28.6,32.9,28.8,33.1,,,
+6,5610707e-94f7-466f-8a29-6f2ad3e4ec1a,892,27,37,Scotland,Pass,Jack Hendry,Grant Campbell Hanley,28.8,33.1,33.8,50.6,18.2,,
+7,a67ca0d1-9dd7-55e8-8844-236e45fc2dc5,894,27,39,Scotland,Carry,Grant Campbell Hanley,,33.8,50.6,48.3,61.1,,,
+8,104ab466-52ee-41c4-9281-d459a07d8720,895,27,41,Scotland,Pass,Grant Campbell Hanley,Che Adams,48.3,61.1,107.4,64.4,59.19,,
+9,f56b3248-f32d-519b-8952-290aba7cee83,897,27,44,Scotland,Carry,Che Adams,,107.4,64.4,100.9,69.1,,,
+10,8b23de59-ac4a-4ceb-8dc1-06e61dd9964d,898,27,46,Scotland,Pass,Che Adams,Ben Doak,100.9,69.1,90.6,73.2,11.09,,
+11,074ad048-b8ca-532e-88ab-d007b594a8a7,900,27,48,Scotland,Carry,Ben Doak,,90.6,73.2,113.6,60.7,,,
+12,1286d5b8-0dec-474c-be92-d1188bd40117,902,27,52,Scotland,Pass,Ben Doak,Che Adams,113.6,60.7,117.2,45.2,15.91,,
+13,2db1c047-957d-4bbb-a310-4a7d672a94ff,904,27,52,Scotland,Shot,Che Adams,,117.2,45.2,118.2,41.3,,0.4049948454,Saved
+14,ba8c319a-ee1b-4722-bfb4-e78a5a5e837a,906,27,53,Scotland,Ball Recovery,John McGinn,,106.4,43.7,,,,,
+15,27deade8-5969-58dc-b4ab-82ee46b08cb2,907,27,53,Scotland,Carry,John McGinn,,106.4,43.7,106.3,42.2,,,
+16,ecbec9ad-d604-4dcd-b399-d7ab55dcdbc2,909,27,54,Scotland,Shot,John McGinn,,106.3,42.2,120,39.1,,0.0725845918,Goal
