@@ -2479,12 +2479,135 @@ build_set_piece_network_panel <- function(sequence_df,
     )
 }
 
-#' Binned heatmap of set-piece starting locations (vertical pitch, attack upward)
+#' Colours for corner vs free-kick set pieces on combined pitch views
+set_piece_type_colors <- function() {
+  c(
+    "Corner" = SDC_PALETTE[["purple"]],
+    "Free kick" = SDC_PALETTE[["blue"]]
+  )
+}
+
+#' Completed pass arrows for attacking-zone set-piece possessions
+collect_attacking_set_piece_pass_edges <- function(events_df,
+                                                 team_name,
+                                                 possessions_df) {
+  if (nrow(possessions_df) == 0) {
+    return(tibble::tibble(
+      possession = integer(),
+      set_piece_type = character(),
+      x_from = numeric(),
+      y_from = numeric(),
+      x_to = numeric(),
+      y_to = numeric()
+    ))
+  }
+
+  purrr::map_dfr(seq_len(nrow(possessions_df)), function(i) {
+    pid <- possessions_df$possession[i]
+    sp_type <- possessions_df$set_piece_type[i]
+    sequence <- extract_set_piece_sequence(
+      events_df,
+      possession_id = pid,
+      team_name = team_name
+    )
+    network <- compute_set_piece_sequence_network(sequence, events_df)
+    if (nrow(network$edges) == 0) {
+      return(tibble::tibble())
+    }
+
+    network$edges %>%
+      dplyr::transmute(
+        possession = pid,
+        set_piece_type = sp_type,
+        x_from = .data$x_from,
+        y_from = .data$y_from,
+        x_to = .data$x_to,
+        y_to = .data$y_to
+      )
+  })
+}
+
+#' Shot trajectories for attacking-zone set-piece possessions that ended in a shot
+collect_attacking_set_piece_shot_edges <- function(events_df,
+                                                 team_name,
+                                                 possessions_df) {
+  shot_possessions <- possessions_df %>%
+    dplyr::filter(.data$ended_shot)
+
+  if (nrow(shot_possessions) == 0) {
+    return(tibble::tibble(
+      possession = integer(),
+      set_piece_type = character(),
+      x_from = numeric(),
+      y_from = numeric(),
+      x_to = numeric(),
+      y_to = numeric()
+    ))
+  }
+
+  direction <- infer_team_attacking_high_x(events_df)
+
+  purrr::map_dfr(seq_len(nrow(shot_possessions)), function(i) {
+    pid <- shot_possessions$possession[i]
+    sp_type <- shot_possessions$set_piece_type[i]
+    sp_row <- events_df %>%
+      dplyr::filter(.data$possession == pid) %>%
+      dplyr::arrange(.data$index) %>%
+      dplyr::slice(1)
+    attacks_high_x <- direction %>%
+      dplyr::filter(
+        .data$`team.name` == !!team_name,
+        .data$period == sp_row$period
+      ) %>%
+      dplyr::pull(.data$attacks_high_x) %>%
+      dplyr::first()
+    attacks_high_x <- dplyr::coalesce(attacks_high_x, TRUE)
+
+    sequence <- extract_set_piece_sequence(
+      events_df,
+      possession_id = pid,
+      team_name = team_name
+    )
+    network <- compute_set_piece_sequence_network(sequence, events_df)
+    if (nrow(network$shots) == 0) {
+      return(tibble::tibble())
+    }
+
+    network$shots %>%
+      dplyr::mutate(
+        `location.x` = .data$pitch_x,
+        `location.y` = .data$pitch_y,
+        norm_end = purrr::pmap(
+          list(.data$`shot.end_location.x`, .data$`shot.end_location.y`),
+          function(x, y) {
+            if (is.na(x) || is.na(y)) {
+              return(list(x = NA_real_, y = NA_real_))
+            }
+            normalize_opponent_half_coords(x, y, attacks_high_x)
+          }
+        ),
+        traj_xend = purrr::map_dbl(.data$norm_end, "x"),
+        traj_yend = purrr::map_dbl(.data$norm_end, "y")
+      ) %>%
+      dplyr::filter(!is.na(.data$traj_xend), !is.na(.data$traj_yend)) %>%
+      dplyr::transmute(
+        possession = pid,
+        set_piece_type = sp_type,
+        x_from = .data$pitch_x,
+        y_from = .data$pitch_y,
+        x_to = .data$traj_xend,
+        y_to = .data$traj_yend
+      )
+  })
+}
+
+#' Binned heatmap of set-piece starts with overlaid pass networks
 build_set_piece_origin_heatmap <- function(events_df,
                                            team_name,
                                            match_id,
                                            possessions_df,
                                            heat_color = SDC_PALETTE[["red"]],
+                                           highlight_possessions = NULL,
                                            x_min = 0,
                                            x_max = 120,
                                            n_x_bins = 6L,
@@ -2501,6 +2624,18 @@ build_set_piece_origin_heatmap <- function(events_df,
   }
 
   direction <- infer_team_attacking_high_x(events_df)
+  type_colors <- set_piece_type_colors()
+  pass_edges <- collect_attacking_set_piece_pass_edges(
+    events_df = events_df,
+    team_name = team_name,
+    possessions_df = possessions_df
+  )
+  shot_edges <- collect_attacking_set_piece_shot_edges(
+    events_df = events_df,
+    team_name = team_name,
+    possessions_df = possessions_df
+  )
+
   origins <- set_pieces %>%
     dplyr::left_join(direction, by = c("team.name" = "team.name", "period" = "period")) %>%
     dplyr::mutate(attacks_high_x = dplyr::coalesce(.data$attacks_high_x, TRUE)) %>%
@@ -2523,7 +2658,11 @@ build_set_piece_origin_heatmap <- function(events_df,
     ) %>%
     dplyr::mutate(
       pitch_x = pmin(pmax(.data$pitch_x, x_min), x_max),
-      pitch_y = pmin(pmax(.data$pitch_y, 0), 80)
+      pitch_y = pmin(pmax(.data$pitch_y, 0), 80),
+      set_piece_type = factor(
+        .data$set_piece_type,
+        levels = names(type_colors)
+      )
     )
 
   x_breaks <- seq(x_min, x_max, length.out = n_x_bins + 1L)
@@ -2557,6 +2696,12 @@ build_set_piece_origin_heatmap <- function(events_df,
       xmax = x_breaks[.data$x_bin + 1L],
       ymin = y_breaks[.data$y_bin],
       ymax = y_breaks[.data$y_bin + 1L]
+    ) %>%
+    dplyr::mutate(
+      xmin = pmax(.data$xmin - 0.04, x_min),
+      xmax = pmin(.data$xmax + 0.04, x_max),
+      ymin = pmax(.data$ymin - 0.04, 0),
+      ymax = pmin(.data$ymax + 0.04, 80)
     )
 
   heat_colors <- palette_binned_heatmap(color = heat_color, n = 9)
@@ -2565,8 +2710,19 @@ build_set_piece_origin_heatmap <- function(events_df,
     legend_max <- 1
   }
   legend_limit <- min(0.5, max(0.15, ceiling(legend_max * 100 / 5) * 5 / 100))
+  plot_x_max <- x_max + GOAL_NET_DEPTH_SB
 
   p <- ggplot2::ggplot() +
+    ggplot2::annotate(
+      "rect",
+      xmin = x_min,
+      xmax = x_max,
+      ymin = 0,
+      ymax = 80,
+      fill = heat_colors[1],
+      colour = NA,
+      alpha = 1
+    ) +
     ggplot2::geom_rect(
       data = heatmap_df,
       ggplot2::aes(
@@ -2577,12 +2733,117 @@ build_set_piece_origin_heatmap <- function(events_df,
         fill = .data$share
       ),
       colour = NA,
-      alpha = 0.92
+      alpha = 0.78
     ) +
     draw_pitch_markings(colour = "black", linewidth = 0.55) +
-    draw_pitch_outer_border(colour = "black", linewidth = 1.0) +
+    draw_pitch_outer_border(colour = "black", linewidth = 1.0)
+
+  for (layer in draw_pitch_goal_net_layers(colour = "black", linewidth = 0.55)) {
+    p <- p + layer
+  }
+
+  if (nrow(pass_edges) > 0) {
+    pass_edges <- pass_edges %>%
+      dplyr::mutate(
+        set_piece_type = factor(.data$set_piece_type, levels = names(type_colors))
+      )
+    p <- p +
+      ggplot2::geom_segment(
+        data = pass_edges,
+        ggplot2::aes(
+          x = .data$x_from,
+          y = .data$y_from,
+          xend = .data$x_to,
+          yend = .data$y_to,
+          colour = .data$set_piece_type
+        ),
+        linetype = "dashed",
+        alpha = 0.35,
+        linewidth = 0.88,
+        lineend = "round",
+        arrow = grid::arrow(
+          length = grid::unit(0.07, "inches"),
+          type = "closed"
+        )
+      ) +
+      ggplot2::geom_segment(
+        data = pass_edges,
+        ggplot2::aes(
+          x = .data$x_from,
+          y = .data$y_from,
+          xend = .data$x_to,
+          yend = .data$y_to,
+          colour = .data$set_piece_type
+        ),
+        linetype = "dashed",
+        alpha = 0.95,
+        linewidth = 0.5,
+        lineend = "round",
+        arrow = grid::arrow(
+          length = grid::unit(0.065, "inches"),
+          type = "closed"
+        )
+      )
+  }
+
+  if (nrow(shot_edges) > 0) {
+    shot_edges <- shot_edges %>%
+      dplyr::mutate(
+        set_piece_type = factor(.data$set_piece_type, levels = names(type_colors))
+      )
+    p <- p +
+      ggplot2::geom_segment(
+        data = shot_edges,
+        ggplot2::aes(
+          x = .data$x_from,
+          y = .data$y_from,
+          xend = .data$x_to,
+          yend = .data$y_to,
+          colour = .data$set_piece_type
+        ),
+        linetype = "solid",
+        alpha = 0.4,
+        linewidth = 0.92,
+        lineend = "round",
+        arrow = grid::arrow(
+          length = grid::unit(0.075, "inches"),
+          type = "closed"
+        )
+      ) +
+      ggplot2::geom_segment(
+        data = shot_edges,
+        ggplot2::aes(
+          x = .data$x_from,
+          y = .data$y_from,
+          xend = .data$x_to,
+          yend = .data$y_to,
+          colour = .data$set_piece_type
+        ),
+        linetype = "solid",
+        alpha = 0.98,
+        linewidth = 0.56,
+        lineend = "round",
+        arrow = grid::arrow(
+          length = grid::unit(0.07, "inches"),
+          type = "closed"
+        )
+      )
+  }
+
+  p <- p +
+    ggplot2::geom_point(
+      data = origins,
+      ggplot2::aes(
+        x = .data$pitch_x,
+        y = .data$pitch_y,
+        colour = .data$set_piece_type
+      ),
+      shape = 16,
+      size = 2.35,
+      alpha = 1
+    ) +
     ggplot2::geom_segment(
-      data = tibble::tibble(x = 18, xend = 102, y = -3.2, yend = -3.2),
+      data = tibble::tibble(x = 22, xend = 98, y = 5, yend = 5),
       ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
       arrow = grid::arrow(
         length = grid::unit(0.08, "inches"),
@@ -2599,12 +2860,33 @@ build_set_piece_origin_heatmap <- function(events_df,
       oob = scales::squish,
       guide = "none"
     ) +
-    ggplot2::scale_x_continuous(limits = c(x_min, x_max), expand = c(0, 0)) +
-    ggplot2::scale_y_continuous(limits = c(-4.5, 80), expand = c(0, 0)) +
+    ggplot2::scale_colour_manual(
+      values = type_colors,
+      name = NULL,
+      breaks = names(type_colors),
+      guide = ggplot2::guide_legend(
+        nrow = 1,
+        byrow = TRUE,
+        override.aes = list(
+          alpha = 1,
+          linewidth = 0.9,
+          linetype = "dashed",
+          shape = 16,
+          size = 3.2
+        ),
+        keywidth = ggplot2::unit(0.45, "cm"),
+        keyheight = ggplot2::unit(0.45, "cm")
+      )
+    ) +
+    ggplot2::scale_x_continuous(limits = c(x_min, plot_x_max), expand = c(0, 0)) +
+    ggplot2::scale_y_continuous(limits = c(0, 80), expand = c(0, 0)) +
     ggplot2::coord_flip() +
     ggplot2::labs(
-      title = "Set-piece locations",
-      subtitle = "Share of set-piece starts · arrow = attack direction",
+      title = "Set-piece locations & passing",
+      subtitle = paste0(
+        "Dashed = passes (", nrow(pass_edges), ") · solid = shots (", nrow(shot_edges), ")",
+        " · colour = set-piece type"
+      ),
       x = NULL,
       y = NULL
     ) +
@@ -2619,11 +2901,21 @@ build_set_piece_origin_heatmap <- function(events_df,
       ),
       plot.subtitle = ggplot2::element_text(
         family = SDC_FONTS$body,
-        size = 7,
+        size = 6.5,
         colour = SDC_ARTICLE_COLORS$muted,
         hjust = 0.5,
         margin = ggplot2::margin(b = 2)
       ),
+      legend.position = "top",
+      legend.direction = "horizontal",
+      legend.justification = "center",
+      legend.text = ggplot2::element_text(
+        family = SDC_FONTS$body,
+        size = 6.5,
+        colour = SDC_ARTICLE_COLORS$ink
+      ),
+      legend.key = ggplot2::element_rect(fill = NA, colour = NA),
+      legend.margin = ggplot2::margin(b = 1),
       axis.text = ggplot2::element_blank(),
       axis.title = ggplot2::element_blank(),
       panel.grid = ggplot2::element_blank(),
@@ -2635,15 +2927,36 @@ build_set_piece_origin_heatmap <- function(events_df,
   p
 }
 
+#' Integer pie-slice percentages that sum to 100 (largest remainder)
+round_pie_percents <- function(counts) {
+  total <- sum(counts)
+  if (total == 0L) {
+    return(integer(length(counts)))
+  }
+
+  raw <- 100 * counts / total
+  rounded <- floor(raw)
+  remainder <- 100L - sum(rounded)
+  if (remainder > 0L) {
+    bump <- base::order(raw - rounded, decreasing = TRUE)
+    rounded[bump[seq_len(remainder)]] <- rounded[bump[seq_len(remainder)]] + 1L
+  }
+
+  as.integer(rounded)
+}
+
 #' Pie chart of set-piece outcomes — percentages on slices, legend above
 build_set_piece_outcome_pie_plot <- function(outcome_counts,
                                             pie_colors,
                                             total_xg = NULL) {
   pie_df <- outcome_counts %>%
     dplyr::arrange(dplyr::desc(.data$outcome_bucket)) %>%
+    dplyr::mutate(frac = .data$n / sum(.data$n))
+
+  pie_df$pct_display <- round_pie_percents(pie_df$n)
+
+  pie_df <- pie_df %>%
     dplyr::mutate(
-      frac = .data$n / sum(.data$n),
-      pct_display = as.integer(ceiling(100 * .data$frac)),
       ymax = cumsum(.data$frac),
       ymin = dplyr::lag(.data$ymax, default = 0),
       label_y = (.data$ymax + .data$ymin) / 2,
@@ -2972,7 +3285,8 @@ build_set_piece_performance_summary <- function(performance,
       team_name = team_name,
       match_id = match_id,
       possessions_df = performance$possessions,
-      heat_color = team_color
+      heat_color = team_color,
+      highlight_possessions = highlight_possessions
     )
   } else {
     NULL
