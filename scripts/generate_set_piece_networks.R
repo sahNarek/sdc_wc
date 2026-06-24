@@ -13,10 +13,7 @@ plot <- viz_portugal_set_piece_networks(
   team_color = "#D62728",
   opponent_color = "#17BECF",
   attacking_zone_only = TRUE,
-  max_goal_distance_m = 35,
-  eyebrow = "Set piece sequences",
-  title = "Portugal · three dangerous set-piece passing networks",
-  subtitle = "Portugal 4–0 Uzbekistan"
+  max_goal_distance_m = 35
 )
 
 out <- "output/figures/4036758/statsbomb/Portugal_Set_Piece_Networks.png"

@@ -2636,7 +2636,9 @@ build_set_piece_origin_heatmap <- function(events_df,
 }
 
 #' Pie chart of set-piece outcomes — percentages on slices, legend above
-build_set_piece_outcome_pie_plot <- function(outcome_counts, pie_colors) {
+build_set_piece_outcome_pie_plot <- function(outcome_counts,
+                                            pie_colors,
+                                            total_xg = NULL) {
   pie_df <- outcome_counts %>%
     dplyr::arrange(dplyr::desc(.data$outcome_bucket)) %>%
     dplyr::mutate(
@@ -2680,6 +2682,11 @@ build_set_piece_outcome_pie_plot <- function(outcome_counts, pie_colors) {
     ) +
     ggplot2::labs(
       title = "Set-piece outcomes",
+      subtitle = if (!is.null(total_xg)) {
+        paste0(format(round(total_xg, 2), nsmall = 2), " total xG")
+      } else {
+        NULL
+      },
       x = NULL,
       y = NULL
     ) +
@@ -2691,6 +2698,14 @@ build_set_piece_outcome_pie_plot <- function(outcome_counts, pie_colors) {
         size = 10,
         colour = SDC_ARTICLE_COLORS$ink,
         hjust = 0.5
+      ),
+      plot.subtitle = ggplot2::element_text(
+        family = SDC_FONTS$title,
+        face = "bold",
+        size = 8.5,
+        colour = SDC_PALETTE[["orange"]],
+        hjust = 0.5,
+        margin = ggplot2::margin(b = 2)
       ),
       legend.position = "top",
       legend.direction = "horizontal",
@@ -2819,22 +2834,32 @@ build_set_piece_pass_metrics_plot <- function(performance) {
 
   metrics <- tibble::tibble(
     category = c(
+      "Total xG",
       "Avg passes / sequence",
       "Avg passes before shot",
       "Avg passes before loss",
       "Direct shots (0 passes)"
     ),
     value = c(
+      performance$total_xg,
       performance$avg_passes,
       performance$avg_passes_to_shot,
       performance$avg_passes_before_loss,
       as.numeric(performance$direct_shots)
     ),
     display = c(
+      format(round(performance$total_xg, 2), nsmall = 2),
       fmt_avg(performance$avg_passes),
       fmt_avg(performance$avg_passes_to_shot),
       fmt_avg(performance$avg_passes_before_loss),
       as.character(as.integer(performance$direct_shots))
+    ),
+    highlight = c(
+      TRUE,
+      FALSE,
+      FALSE,
+      FALSE,
+      TRUE
     )
   )
 
@@ -2843,7 +2868,7 @@ build_set_piece_pass_metrics_plot <- function(performance) {
     ggplot2::aes(
       x = reorder(.data$category, .data$value),
       y = .data$value,
-      fill = .data$category == "Direct shots (0 passes)"
+      fill = .data$highlight
     )
   ) +
     ggplot2::geom_col(width = 0.58, colour = NA) +
@@ -2864,7 +2889,8 @@ build_set_piece_pass_metrics_plot <- function(performance) {
     ggplot2::labs(
       title = "Passing profile",
       subtitle = paste0(
-        performance$completed_passes, " completed passes · max ",
+        performance$completed_passes, " completed passes · ",
+        format(round(performance$total_xg, 2), nsmall = 2), " total xG · max ",
         performance$max_passes, " in one sequence"
       ),
       x = NULL,
@@ -2934,7 +2960,11 @@ build_set_piece_performance_summary <- function(performance,
     "No shot" = SDC_ARTICLE_COLORS$grid
   )
 
-  pie_plot <- build_set_piece_outcome_pie_plot(outcome_counts, pie_colors)
+  pie_plot <- build_set_piece_outcome_pie_plot(
+    outcome_counts,
+    pie_colors,
+    total_xg = performance$total_xg
+  )
 
   heatmap_plot <- if (!is.null(events_df) && !is.null(team_name)) {
     build_set_piece_origin_heatmap(
@@ -2957,7 +2987,7 @@ build_set_piece_performance_summary <- function(performance,
       widths = c(1.05, 0.82, 1.05)
     ) +
       patchwork::plot_annotation(
-        title = paste0(team_label, " set-piece profile"),
+        title = paste0(team_label, " dead-ball breakdown"),
         subtitle = paste0(
           performance$with_shot, " of ", performance$total_set_pieces,
           " sequences reached a shot (",
@@ -3005,7 +3035,7 @@ viz_portugal_set_piece_networks <- function(events_df,
                                             patterns = c("From Corner", "From Free Kick"),
                                             attacking_zone_only = TRUE,
                                             max_goal_distance_m = 35,
-                                            eyebrow = "Dangerous set pieces",
+                                            eyebrow = "Set piece analysis",
                                             title = NULL,
                                             subtitle = NULL,
                                             caption = NULL) {
@@ -3123,10 +3153,18 @@ viz_portugal_set_piece_networks <- function(events_df,
   )
 
   if (is.null(title)) {
-    title <- paste0(team_label, " · three dangerous set-piece sequences")
+    title <- paste0(toupper(team_label), "'S ATTACKING SET-PIECE PROFILE")
   }
-  if (is.null(subtitle) && !is.null(meta)) {
-    subtitle <- match_score_line(meta)
+  if (is.null(subtitle)) {
+    subtitle <- paste0(
+      "Key routines, locations, and outcomes from ",
+      performance$total_set_pieces, " attacking-zone dead balls · ",
+      performance$with_goal, " goals · ",
+      format(round(performance$total_xg, 2), nsmall = 2), " total xG"
+    )
+    if (!is.null(meta)) {
+      subtitle <- paste0(subtitle, " · ", match_score_line(meta))
+    }
   }
   if (is.null(caption)) {
     caption <- paste0(
