@@ -262,6 +262,29 @@ apply_team_display_labels <- function(df, team_col = "Team", name_map = NULL) {
   df
 }
 
+#' One-line match score for article titles
+match_score_line <- function(meta) {
+  paste0(
+    meta$display_home, " ", meta$home_score, "–", meta$away_score, " ",
+    meta$display_away
+  )
+}
+
+#' Article-style title for a featured player shot map (includes the scoreline)
+player_shot_map_goal_net_article_title <- function(meta, player_label) {
+  paste0(player_label, " in ", match_score_line(meta))
+}
+
+#' Short subtitle for article graphics (competition + venue)
+short_match_chart_subtitle <- function(meta) {
+  parts <- c(
+    meta$competition_name,
+    meta$season_name,
+    if (!is.na(meta$stadium) && nzchar(meta$stadium)) meta$stadium else NULL
+  )
+  paste(parts[!is.na(parts) & nzchar(parts)], collapse = " · ")
+}
+
 #' Subtitle line shared across match charts
 match_chart_subtitle <- function(meta) {
   paste0(
@@ -286,6 +309,7 @@ default_chart_titles <- function(meta) {
     shot_map_left_foot_suffix = "shot map (left foot)",
     shot_map_goal_net_suffix = "shot map and goal mouth",
     shot_map_goal_net_title = NULL,
+    shot_map_goal_net_subtitle = NULL,
     team_shot_map_suffix = "team shot map",
     match_shot_map_suffix = "match shot map",
     team_shot_map_goal_net_suffix = "team shot map and goal mouth",

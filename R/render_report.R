@@ -52,6 +52,21 @@ match_report_defaults <- function(match_id) {
         shot_map_goal_net_title = "Ageless Messi blasts Algeria"
       )
     ),
+    "4036758" = list(
+      featured_icon_player = "Cristiano Ronaldo",
+      home_color = "#DA291C",
+      away_color = "#1EB53A",
+      shot_map_scope = "featured_only",
+      shot_map_iterate_palette = FALSE,
+      shot_map_color = "#D62728",
+      shot_map_icon_set = "footprint",
+      shot_map_show_heatmap = TRUE,
+      goal_net_use_ball_icons = TRUE,
+      chart_titles = list(
+        shot_map_goal_net_title = "Ronaldo scores a brace as Portugal beat Uzbekistan 4–0",
+        shot_map_goal_net_subtitle = "Shots trajectories and attacking contribution · FIFA World Cup 2026"
+      )
+    ),
     list()
   )
 }

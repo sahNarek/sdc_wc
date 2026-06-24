@@ -656,6 +656,104 @@ viz_player_attacking_heatmap <- function(events_df,
   )
 }
 
+#' Shared attacking heatmap data for UC8/UC9 (pitch plot + legend scale)
+prepare_shot_map_attacking_heatmap <- function(events_df,
+                                             player_id = NULL,
+                                             player_name = NULL,
+                                             match_id = NULL,
+                                             heat_color = SDC_PALETTE[["blue"]],
+                                             n_x_bins = 6,
+                                             n_y_bins = 5) {
+  heatmap_df <- compute_player_attacking_heatmap(
+    events_df,
+    player_id = player_id,
+    player_name = player_name,
+    match_id = match_id,
+    n_x_bins = n_x_bins,
+    n_y_bins = n_y_bins,
+    normalize_direction = TRUE
+  )
+
+  if (nrow(heatmap_df) == 0 || all(heatmap_df$zone_actions == 0)) {
+    stop("No attacking actions found for the selected player.", call. = FALSE)
+  }
+
+  heat_colors <- palette_binned_heatmap(color = heat_color, n = 9)
+  legend_max <- max(heatmap_df$share_of_actions, na.rm = TRUE)
+  legend_limit <- min(0.25, max(0.15, ceiling(legend_max * 100 / 5) * 5 / 100))
+
+  pitch_plot <- ggplot(heatmap_df) +
+    geom_rect(
+      aes(
+        xmin = .data$xmin,
+        xmax = .data$xmax,
+        ymin = .data$ymin,
+        ymax = .data$ymax,
+        fill = .data$share_of_actions
+      ),
+      colour = NA,
+      alpha = 0.92
+    ) +
+    draw_pitch_markings(colour = "black", linewidth = 0.45) +
+    draw_pitch_outer_border(colour = "black", linewidth = 0.85) +
+    scale_fill_gradientn(
+      colours = heat_colors,
+      limits = c(0, legend_limit),
+      oob = scales::squish,
+      guide = "none"
+    ) +
+    scale_x_continuous(limits = c(0, 120), expand = c(0, 0)) +
+    scale_y_reverse(limits = c(80, 0), expand = c(0, 0)) +
+    coord_fixed(ratio = 80 / 120) +
+    labs(x = NULL, y = NULL) +
+    theme_sdc(base_size = 9) +
+    theme(
+      axis.text = element_blank(),
+      axis.title = element_blank(),
+      panel.grid = element_blank(),
+      legend.position = "none",
+      plot.margin = margin(t = 2, r = 4, b = 0, l = 4)
+    )
+
+  list(
+    plot = pitch_plot,
+    heat_colors = heat_colors,
+    legend_limits = c(0, legend_limit)
+  )
+}
+
+#' Compact attacking heatmap panel for UC8 shot-map layout (goal mouth + zones)
+build_shot_map_attacking_heatmap_panel <- function(events_df,
+                                                   player_id = NULL,
+                                                   player_name = NULL,
+                                                   match_id = NULL,
+                                                   heat_color = SDC_PALETTE[["blue"]],
+                                                   n_x_bins = 6,
+                                                   n_y_bins = 5,
+                                                   include_legend = TRUE) {
+  prep <- prepare_shot_map_attacking_heatmap(
+    events_df = events_df,
+    player_id = player_id,
+    player_name = player_name,
+    match_id = match_id,
+    heat_color = heat_color,
+    n_x_bins = n_x_bins,
+    n_y_bins = n_y_bins
+  )
+
+  if (!isTRUE(include_legend)) {
+    return(prep$plot)
+  }
+
+  assemble_player_heatmap(
+    prep$plot,
+    heat_colors = prep$heat_colors,
+    legend_title = "Share of attacking actions",
+    legend_limits = prep$legend_limits,
+    compact_legend = TRUE
+  )
+}
+
 #' Resolve one or more players for heatmap charts
 resolve_players_for_heatmap <- function(events_df,
                                         player_ids = NULL,

@@ -246,7 +246,8 @@ shot_trajectory_outcome_colors <- function() {
   c(
     Goal = SDC_PALETTE[["green"]],
     Saved = SDC_PALETTE[["orange"]],
-    Other = SDC_PALETTE[["red"]]
+    Blocked = SDC_PALETTE[["purple"]],
+    Missed = SDC_PALETTE[["red"]]
   )
 }
 
@@ -257,6 +258,9 @@ shot_trajectory_line_color <- function(outcome) {
   }
   if (identical(outcome, "Saved")) {
     return(SDC_PALETTE[["orange"]])
+  }
+  if (identical(outcome, "Blocked")) {
+    return(SDC_PALETTE[["purple"]])
   }
   SDC_PALETTE[["red"]]
 }
@@ -420,10 +424,9 @@ add_shot_trajectory_endpoints <- function(data,
                                           goal_post_y_max = GOAL_POST_Y_MAX) {
   data %>%
     dplyr::mutate(
-      traj_xend = dplyr::if_else(
-        !is.na(.data$`shot.end_location.x`) & !is.na(.data$`shot.end_location.y`),
-        .env$goal_line_x,
-        dplyr::coalesce(.data$`shot.end_location.x`, .env$goal_line_x)
+      traj_xend = dplyr::coalesce(
+        .data$`shot.end_location.x`,
+        .env$goal_line_x
       ),
       traj_yend = dplyr::coalesce(
         .data$`shot.end_location.y`,
@@ -500,6 +503,7 @@ filter_shot_map_data <- function(events_df,
                                  both_teams = FALSE,
                                  match_id = NULL,
                                  exclude_penalties = TRUE,
+                                 exclude_shot_minutes = NULL,
                                  restrict_to_attacking_third = TRUE) {
   data <- events_df %>%
     filter(type.name == "Shot")
@@ -535,6 +539,18 @@ filter_shot_map_data <- function(events_df,
 
   if (nrow(data) == 0) {
     stop("No shots found for the selected filter.", call. = FALSE)
+  }
+
+  if (!is.null(exclude_shot_minutes) && length(exclude_shot_minutes) > 0) {
+    data <- data %>%
+      dplyr::filter(!.data$minute %in% as.integer(exclude_shot_minutes))
+    if (nrow(data) == 0) {
+      stop(
+        "No shots remain after excluding minute(s): ",
+        paste(exclude_shot_minutes, collapse = ", "),
+        call. = FALSE
+      )
+    }
   }
 
   if (isTRUE(restrict_to_attacking_third)) {

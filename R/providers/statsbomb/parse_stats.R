@@ -20,6 +20,26 @@ parse_team_match_stats_json <- function(stats, match_id) {
   df
 }
 
+#' Build English stadium label from game_ids row (e.g. Houston Stadium)
+english_stadium_name <- function(display_row) {
+  if (is.null(display_row)) {
+    return(NA_character_)
+  }
+
+  ciudad <- display_row$Ciudad %||% NA_character_
+  if (!is.na(ciudad) && nzchar(trimws(ciudad))) {
+    return(paste(trimws(ciudad), "Stadium"))
+  }
+
+  estadio <- display_row$Estadio %||% NA_character_
+  if (!is.na(estadio) && nzchar(estadio)) {
+    venue <- sub("^Estadio\\s+", "", estadio, ignore.case = TRUE)
+    return(paste(trimws(venue), "Stadium"))
+  }
+
+  NA_character_
+}
+
 #' Build match metadata from team stats and optional game_ids row
 build_match_meta <- function(match_id,
                            team_match_stats_df,
@@ -54,7 +74,7 @@ build_match_meta <- function(match_id,
     season_name = team_match_stats_df$season_name[1],
     display_home = if (!is.null(display_row)) display_row$pais_1 else home_team,
     display_away = if (!is.null(display_row)) display_row$pais_2 else away_team,
-    stadium = if (!is.null(display_row)) display_row$Estadio else NA_character_,
+    stadium = english_stadium_name(display_row),
     match_label = paste(home_team, "vs", away_team)
   )
 }

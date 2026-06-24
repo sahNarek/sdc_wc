@@ -199,6 +199,65 @@ invalidate_gloves_icon_cache <- function() {
   invisible(NULL)
 }
 
+invalidate_block_icon_cache <- function() {
+  keys <- ls(envir = ICON_COLOR_CACHE, all.names = TRUE)
+  block_keys <- grep("^block\\|", keys, value = TRUE)
+  if (length(block_keys) > 0) {
+    rm(list = block_keys, envir = ICON_COLOR_CACHE)
+  }
+  invisible(NULL)
+}
+
+#' Ensure block_sign.svg is rasterised to PNG (refreshes when SVG is newer)
+ensure_block_icon <- function(root = get_project_root()) {
+  icons_dir <- get_icons_dir(root)
+  png_path <- file.path(icons_dir, "block_sign.png")
+  svg_path <- file.path(icons_dir, "block_sign.svg")
+  if (!file.exists(svg_path)) {
+    stop("Block icon not found: ", svg_path, call. = FALSE)
+  }
+
+  needs_refresh <- !file.exists(png_path) ||
+    file.info(svg_path)$mtime > file.info(png_path)$mtime
+
+  if (!isTRUE(needs_refresh)) {
+    return(invisible(png_path))
+  }
+
+  if (!requireNamespace("rsvg", quietly = TRUE)) {
+    install.packages("rsvg", repos = "https://cloud.r-project.org")
+  }
+
+  invalidate_block_icon_cache()
+  rsvg::rsvg_png(svg_path, png_path, width = 200, height = 200)
+  invisible(png_path)
+}
+
+#' Path to the rasterised block icon
+block_icon_path <- function(root = get_project_root()) {
+  ensure_block_icon(root)
+  file.path(get_icons_dir(root), "block_sign.png")
+}
+
+#' Cached block icon tinted with a solid colour
+colored_block_icon_path <- function(hex_color, root = get_project_root()) {
+  key <- paste("block", hex_color, sep = "|")
+  if (exists(key, envir = ICON_COLOR_CACHE, inherits = FALSE)) {
+    return(get(key, envir = ICON_COLOR_CACHE))
+  }
+
+  colored <- colorize_body_part_icon(block_icon_path(root), hex_color)
+  cache_dir <- file.path(tempdir(), "sdc_shot_icons")
+  dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+  out <- file.path(
+    cache_dir,
+    paste0(gsub("[^A-Za-z0-9]+", "_", key), ".png")
+  )
+  magick::image_write(colored, out)
+  assign(key, out, envir = ICON_COLOR_CACHE)
+  out
+}
+
 #' Ensure gloves.svg is rasterised to PNG (refreshes when SVG is newer)
 ensure_gloves_icon <- function(root = get_project_root()) {
   icons_dir <- get_icons_dir(root)
@@ -274,12 +333,14 @@ colored_ball_icon_path <- function(hex_color, root = get_project_root()) {
   out
 }
 
-#' Goal-net marker colour from shot outcome (green = goal, orange = saved, red = other)
+#' Goal-net marker colour from shot outcome (green = goal, orange = saved, purple = blocked)
 goal_net_marker_color <- function(outcome) {
   if (identical(outcome, "Goal")) {
     SDC_PALETTE[["green"]]
   } else if (identical(outcome, "Saved")) {
     SDC_PALETTE[["orange"]]
+  } else if (identical(outcome, "Blocked")) {
+    SDC_PALETTE[["purple"]]
   } else {
     SDC_PALETTE[["red"]]
   }
@@ -292,6 +353,7 @@ goal_net_ball_color <- goal_net_marker_color
 add_goal_net_ball_icons <- function(net_data) {
   ensure_ball_icon()
   ensure_gloves_icon()
+  ensure_block_icon()
 
   net_data %>%
     dplyr::mutate(
@@ -305,6 +367,46 @@ add_goal_net_ball_icons <- function(net_data) {
         function(outcome, fill) {
           if (identical(outcome, "Saved")) {
             colored_gloves_icon_path(fill)
+          } else if (identical(outcome, "Blocked")) {
+            colored_block_icon_path(fill)
+          } else {
+            colored_ball_icon_path(fill)
+          }
+        }
+      )
+    )
+}
+
+#' Data frame for goal-mouth icon legend (goal / saved / blocked / missed)
+shot_outcome_legend_df <- function(x_centers = c(1.05, 3.35, 5.75, 8.15),
+                                   y_icon = 0.68,
+                                   y_label = 0.50) {
+  ensure_ball_icon()
+  ensure_gloves_icon()
+  ensure_block_icon()
+
+  tibble::tibble(
+    label = c("Goal", "Saved", "Blocked", "Missed"),
+    outcome = c("Goal", "Saved", "Blocked", "Off T"),
+    color = c(
+      SDC_PALETTE[["green"]],
+      SDC_PALETTE[["orange"]],
+      SDC_PALETTE[["purple"]],
+      SDC_PALETTE[["red"]]
+    ),
+    x = x_centers,
+    y_icon = y_icon,
+    y_label = y_label
+  ) %>%
+    dplyr::mutate(
+      icon = purrr::map2_chr(
+        .data$outcome,
+        .data$color,
+        function(outcome, fill) {
+          if (identical(outcome, "Saved")) {
+            colored_gloves_icon_path(fill)
+          } else if (identical(outcome, "Blocked")) {
+            colored_block_icon_path(fill)
           } else {
             colored_ball_icon_path(fill)
           }
@@ -319,68 +421,35 @@ plot_goal_mouth_ball_legend <- function() {
     install.packages("ggimage", repos = "https://cloud.r-project.org")
   }
 
-  ensure_ball_icon()
-  ensure_gloves_icon()
-
+  title_style <- legend_title_ggpar()
+  label_style <- legend_label_ggpar()
   legend_df <- shot_outcome_legend_df()
 
   ggplot2::ggplot(legend_df) +
     ggplot2::annotate(
       "text",
-      x = 2.35,
-      y = 1.2,
+      x = 4.6,
+      y = 0.95,
       label = "Shot outcome",
-      family = SDC_FONTS$body,
-      size = 4,
-      colour = "#333333"
+      family = title_style$family,
+      size = title_style$size,
+      colour = title_style$colour,
+      fontface = title_style$fontface
     ) +
     ggimage::geom_image(
       ggplot2::aes(x = .data$x, y = .data$y_icon, image = .data$icon),
-      size = 0.34
+      size = 0.28
     ) +
     ggplot2::geom_text(
       ggplot2::aes(x = .data$x, y = .data$y_label, label = .data$label),
-      family = SDC_FONTS$body,
-      size = 3.8,
-      colour = "#333333"
+      family = label_style$family,
+      size = 4.1,
+      colour = label_style$colour,
+      fontface = label_style$fontface
     ) +
-    ggplot2::coord_cartesian(xlim = c(0.1, 4.6), ylim = c(0.35, 1.32), clip = "off") +
+    ggplot2::coord_cartesian(xlim = c(0, 9.2), ylim = c(0.32, 1.05), clip = "off") +
     ggplot2::theme_void() +
-    ggplot2::theme(plot.margin = ggplot2::margin(2, 0, 4, 0))
-}
-
-#' Data frame for shot-outcome icon legend (goal / saved / missed)
-shot_outcome_legend_df <- function(x_centers = c(6.35, 7.75, 9.15),
-                                   y_icon = 0.68,
-                                   y_label = 0.54) {
-  ensure_ball_icon()
-  ensure_gloves_icon()
-
-  tibble::tibble(
-    label = c("goal", "saved", "missed"),
-    outcome = c("Goal", "Saved", "Off T"),
-    color = c(
-      SDC_PALETTE[["green"]],
-      SDC_PALETTE[["orange"]],
-      SDC_PALETTE[["red"]]
-    ),
-    x = x_centers,
-    y_icon = y_icon,
-    y_label = y_label
-  ) %>%
-    dplyr::mutate(
-      icon = purrr::map2_chr(
-        .data$outcome,
-        .data$color,
-        function(outcome, fill) {
-          if (identical(outcome, "Saved")) {
-            colored_gloves_icon_path(fill)
-          } else {
-            colored_ball_icon_path(fill)
-          }
-        }
-      )
-    )
+    ggplot2::theme(plot.margin = ggplot2::margin(2, 4, 2, 4))
 }
 
 #' Add per-shot coloured icon paths to shot data
@@ -395,7 +464,11 @@ add_colored_shot_icons <- function(shots_df,
     return(shots_df %>%
       dplyr::mutate(
         colored_icon = purrr::pmap_chr(
-          list(.data$`shot.body_part.name`, .data$`shot.statsbomb_xg`, .data$`team.name`),
+          list(
+            .data$`shot.body_part.name`,
+            .data$`shot.statsbomb_xg`,
+            .data$`team.name`
+          ),
           function(body_part, xg, team) {
             base_color <- team_colors[[team]]
             if (is.null(base_color) || is.na(base_color)) {
@@ -449,8 +522,8 @@ body_part_label <- function(body_part) {
 legend_title_ggpar <- function() {
   list(
     family = SDC_FONTS$body,
-    size = 4,
-    colour = "#333333",
+    size = 5,
+    colour = "#111111",
     fontface = "plain"
   )
 }
@@ -459,8 +532,8 @@ legend_title_ggpar <- function() {
 legend_label_ggpar <- function() {
   list(
     family = SDC_FONTS$body,
-    size = 4,
-    colour = "#333333",
+    size = 4.6,
+    colour = "#111111",
     fontface = "plain"
   )
 }
@@ -505,7 +578,7 @@ plot_shot_map_legend_row <- function(shot_colors,
   p <- ggplot2::ggplot() +
     ggplot2::coord_cartesian(xlim = c(0, 10), ylim = c(0.12, 1.02), clip = "off") +
     ggplot2::theme_void() +
-    ggplot2::theme(plot.margin = ggplot2::margin(4, 6, 4, 6))
+    ggplot2::theme(plot.margin = ggplot2::margin(4, 8, 4, 8))
 
   if (isTRUE(show_body_part)) {
     cx <- section_centers[["body"]]
@@ -538,13 +611,13 @@ plot_shot_map_legend_row <- function(shot_colors,
       ggimage::geom_image(
         data = body_df,
         ggplot2::aes(x = .data$x, y = .data$y, image = .data$icon),
-        size = 0.27
+        size = 0.32
       ) +
       ggplot2::geom_text(
         data = body_df,
         ggplot2::aes(x = .data$x, y = label_y, label = .data$label),
         family = label_style$family,
-        size = 3.5,
+        size = 4.2,
         colour = label_style$colour,
         fontface = label_style$fontface
       )
@@ -614,9 +687,9 @@ plot_shot_map_legend_row <- function(shot_colors,
     cx <- section_centers[["outcome"]]
     cols <- shot_trajectory_outcome_colors()
     traj_df <- tibble::tibble(
-      label = c("Goal", "Saved", "Missed"),
+      label = c("Goal", "Saved", "Blocked", "Missed"),
       line_colour = unname(cols),
-      x = cx + c(-1.25, 0, 1.25)
+      x = cx + c(-1.65, -0.55, 0.55, 1.65)
     )
 
     p <- p +
@@ -955,19 +1028,26 @@ heatmap_share_legend_section <- function(p,
                                          title,
                                          limits = c(0, 0.2),
                                          breaks = NULL,
-                                         bar_half = 1.2) {
+                                         bar_half = 1.2,
+                                         label_size = NULL,
+                                         title_y = NULL,
+                                         marker_y = NULL,
+                                         label_y = NULL) {
   if (is.null(breaks)) {
     max_pct <- limits[2] * 100
-    step <- if (max_pct <= 12) 2 else if (max_pct <= 20) 5 else 10
+    step <- if (max_pct <= 12) 4 else if (max_pct <= 20) 5 else 10
     breaks <- seq(0, limits[2], by = step / 100)
     breaks <- breaks[breaks <= limits[2] + 1e-9]
   }
 
   title_style <- legend_title_ggpar()
   label_style <- legend_label_ggpar()
-  title_y <- 0.88
-  marker_y <- 0.55
-  label_y <- 0.28
+  if (!is.null(label_size)) {
+    label_style$size <- label_size
+  }
+  title_y <- title_y %||% 0.88
+  marker_y <- marker_y %||% 0.55
+  label_y <- label_y %||% 0.28
   tick_df <- tibble::tibble(
     x = cx - bar_half + (breaks - limits[1]) / diff(limits) * (2 * bar_half),
     label = scales::percent(breaks, accuracy = 1)
@@ -1006,11 +1086,35 @@ heatmap_share_legend_section <- function(p,
 plot_heatmap_share_legend_row <- function(heat_colors,
                                           title = "Share of attacking actions",
                                           limits = c(0, 0.2),
-                                          breaks = NULL) {
+                                          breaks = NULL,
+                                          compact = FALSE) {
+  bar_half <- if (isTRUE(compact)) 2.4 else 1.5
+  label_size <- if (isTRUE(compact)) 3.1 else NULL
+  if (isTRUE(compact) && is.null(breaks)) {
+    max_pct <- limits[2] * 100
+    if (max_pct <= 15) {
+      breaks <- c(0, limits[2])
+    } else {
+      breaks <- c(0, limits[2] / 2, limits[2])
+    }
+    breaks <- unique(breaks)
+  }
+
   p <- ggplot2::ggplot() +
-    ggplot2::coord_cartesian(xlim = c(0, 10), ylim = c(0.12, 1.02), clip = "off") +
+    ggplot2::coord_cartesian(
+      xlim = if (isTRUE(compact)) c(0, 10) else c(0, 10),
+      ylim = if (isTRUE(compact)) c(0.08, 0.98) else c(0.12, 1.02),
+      clip = "off"
+    ) +
     ggplot2::theme_void() +
-    ggplot2::theme(plot.margin = ggplot2::margin(4, 6, 4, 6))
+    ggplot2::theme(
+      plot.margin = ggplot2::margin(
+        if (isTRUE(compact)) 6 else 4,
+        if (isTRUE(compact)) 10 else 6,
+        if (isTRUE(compact)) 4 else 4,
+        if (isTRUE(compact)) 10 else 6
+      )
+    )
 
   heatmap_share_legend_section(
     p,
@@ -1019,7 +1123,8 @@ plot_heatmap_share_legend_row <- function(heat_colors,
     title = title,
     limits = limits,
     breaks = breaks,
-    bar_half = 1.5
+    bar_half = bar_half,
+    label_size = label_size
   )
 }
 
@@ -1125,7 +1230,8 @@ assemble_player_heatmap <- function(heatmap_plot,
                                     heat_colors,
                                     legend_title = "Share of attacking actions",
                                     legend_limits = NULL,
-                                    legend_height_frac = 0.14) {
+                                    legend_height_frac = 0.14,
+                                    compact_legend = FALSE) {
   if (!requireNamespace("patchwork", quietly = TRUE)) {
     install.packages("patchwork", repos = "https://cloud.r-project.org")
   }
@@ -1137,13 +1243,14 @@ assemble_player_heatmap <- function(heatmap_plot,
   legend_block <- plot_heatmap_share_legend_row(
     heat_colors = heat_colors,
     title = legend_title,
-    limits = legend_limits
+    limits = legend_limits,
+    compact = isTRUE(compact_legend)
   )
 
   patchwork::wrap_plots(
     list(heatmap_plot, legend_block),
     ncol = 1,
-    heights = c(1, legend_height_frac)
+    heights = c(1, if (isTRUE(compact_legend)) 0.10 else legend_height_frac)
   )
 }
 
@@ -1179,9 +1286,11 @@ assemble_shot_map <- function(shot_plot,
     show_ball = isTRUE(show_goal_net_ball_legend)
   )
 
+  legend_height <- 0.20
+
   patchwork::wrap_plots(
     list(shot_plot, legend_block),
     ncol = 1,
-    heights = c(1, 0.16)
+    heights = c(1, legend_height)
   )
 }

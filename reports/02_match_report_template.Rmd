@@ -26,6 +26,10 @@ params:
   shot_map_iterate_palette: true
   shot_map_icon_set: "footprint"
   goal_net_use_ball_icons: true
+  shot_map_show_heatmap: false
+  shot_map_color: null
+  exclude_shot_minutes: null
+  featured_player_image: null
 ---
 
 ```{r setup, include=FALSE}

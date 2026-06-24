@@ -147,10 +147,36 @@ parse_providers_arg <- function(providers) {
     }
     if (grepl(",", providers, fixed = TRUE)) {
       providers <- strsplit(providers, ",", fixed = TRUE)[[1]]
+    } else {
+      providers <- sanitize_provider_token(providers)
     }
   }
 
   unique(trimws(as.character(providers)))
+}
+
+#' Recover common pasted CLI typos (e.g. statsbombclear -> statsbomb)
+sanitize_provider_token <- function(token) {
+  token <- trimws(as.character(token))
+  if (!nzchar(token)) {
+    return(token)
+  }
+
+  lower <- tolower(token)
+  known <- c("statsbomb", "wyscout")
+  for (provider in known) {
+    if (identical(lower, provider)) {
+      return(provider)
+    }
+    if (startsWith(lower, provider) && nchar(lower) > nchar(provider)) {
+      suffix <- substring(lower, nchar(provider) + 1L)
+      if (suffix %in% c("clear", "clean")) {
+        return(provider)
+      }
+    }
+  }
+
+  token
 }
 
 resolve_providers_for_match <- function(providers,

@@ -136,6 +136,14 @@ goal_net_use_ball_icons <- if (is.null(params$goal_net_use_ball_icons)) {
 } else {
   isTRUE(params$goal_net_use_ball_icons)
 }
+shot_map_show_heatmap <- if (is.null(params$shot_map_show_heatmap)) {
+  shot_map_scope == "featured_only"
+} else {
+  isTRUE(params$shot_map_show_heatmap)
+}
+shot_map_color <- params$shot_map_color %||%
+  params$home_color %||%
+  SDC_PALETTE[["blue"]]
 
 featured_player <- resolve_featured_player(events, params$featured_icon_player)
 
@@ -146,15 +154,18 @@ render_player_shot_map_goal_net <- function(player_info) {
       player_id = player_info$player.id,
       match_id = match_id,
       title = chart_titles$shot_map_goal_net_title %||%
-        player_chart_title(
-          player_info$player_label,
-          chart_titles$shot_map_goal_net_suffix
-        ),
-      subtitle = subtitle,
+        player_shot_map_goal_net_article_title(meta, player_info$player_label),
+      subtitle = chart_titles$shot_map_goal_net_subtitle %||%
+        short_match_chart_subtitle(meta),
       shot_color = color_hex,
+      heatmap_color = color_hex,
       show_trajectories = TRUE,
       icon_set = shot_map_icon_set,
-      goal_net_use_ball_icons = goal_net_use_ball_icons
+      goal_net_use_ball_icons = goal_net_use_ball_icons,
+      show_attacking_heatmap = shot_map_show_heatmap,
+      player_match_stats_df = pms,
+      player_image_path = params$featured_player_image,
+      exclude_shot_minutes = params$exclude_shot_minutes
     )
     print(p8)
     suffix <- if (shot_map_iterate_palette) paste0("_", color_name) else ""
@@ -171,7 +182,7 @@ render_player_shot_map_goal_net <- function(player_info) {
   if (shot_map_iterate_palette) {
     iterate_sdc_palette(draw_map)
   } else {
-    draw_map("Primary", params$home_color %||% SDC_PALETTE[["blue"]])
+    draw_map("Red", shot_map_color)
   }
 }
 
@@ -200,7 +211,7 @@ if (shot_map_scope != "featured_only") {
 cat("## Shot map — ", featured_player$player_label, "\n\n", sep = "")
 ```
 
-```{r shot-maps-featured-only, fig.height=8, eval=shot_map_scope == "featured_only"}
+```{r shot-maps-featured-only, fig.width=9, fig.height=11.25, dpi=96, eval=shot_map_scope == "featured_only"}
 render_player_shot_map_goal_net(featured_player)
 ```
 

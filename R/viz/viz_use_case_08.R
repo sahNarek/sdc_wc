@@ -3,6 +3,7 @@ default_goal_outcome_colors <- function(goal_color = SDC_PALETTE[["blue"]]) {
   list(
     Goal = goal_color,
     Saved = SDC_PALETTE[["orange"]],
+    Blocked = SDC_PALETTE[["purple"]],
     "Off T" = "#333333",
     Post = SDC_PALETTE[["orange"]],
     Wayward = "#333333"
@@ -53,6 +54,23 @@ goal_panel_shape_values <- function(outcomes, shape_by = c("binary", "outcome"))
   } else {
     outcomes
   }
+}
+
+#' Impute missing shot end height for goal-panel mapping
+#'
+#' StatsBomb omits \code{z} on some blocked and wayward attempts even when
+#' horizontal end coordinates are present.
+impute_shot_end_height <- function(outcome, end_z) {
+  dplyr::if_else(
+    !is.na(end_z),
+    end_z,
+    dplyr::case_when(
+      outcome == "Blocked" ~ 0.65,
+      outcome %in% c("Off T", "Wayward", "Post") ~ 1.0,
+      outcome == "Saved" ~ 1.0,
+      TRUE ~ 0.85
+    )
+  )
 }
 
 #' Map StatsBomb shot end_location to front-on goal panel coordinates (metres)
@@ -190,6 +208,12 @@ filter_shots_for_goal_net <- function(data,
     dplyr::filter(
       !is.na(.data$`shot.end_location.x`),
       !is.na(.data$`shot.end_location.y`)
+    ) %>%
+    dplyr::mutate(
+      shot_end_z_plot = impute_shot_end_height(
+        .data$`shot.outcome.name`,
+        .data$`shot.end_location.z`
+      )
     )
 
   if (nrow(data) == 0) {
@@ -197,16 +221,12 @@ filter_shots_for_goal_net <- function(data,
   }
 
   on_net <- data %>%
-    dplyr::filter(
-      !is.na(.data$`shot.end_location.x`),
-      !is.na(.data$`shot.end_location.y`),
-      !is.na(.data$`shot.end_location.z`)
-    )
+    dplyr::filter(!is.na(.data$shot_end_z_plot))
 
   if (nrow(on_net) > 0) {
     mapped <- map_shot_to_goal_panel(
       end_y = on_net$`shot.end_location.y`,
-      end_z = on_net$`shot.end_location.z`,
+      end_z = on_net$shot_end_z_plot,
       goal_width_m = goal_width_m,
       goal_height_m = goal_height_m,
       clip = TRUE
@@ -226,11 +246,7 @@ filter_shots_for_goal_net <- function(data,
   }
 
   pitch_only <- data %>%
-    dplyr::filter(
-      is.na(.data$`shot.end_location.x`) |
-        is.na(.data$`shot.end_location.y`) |
-        is.na(.data$`shot.end_location.z`)
-    ) %>%
+    dplyr::filter(is.na(.data$shot_end_z_plot)) %>%
     dplyr::mutate(
       on_goal_panel = FALSE,
       net_x = NA_real_,
@@ -245,15 +261,12 @@ filter_shots_for_goal_net <- function(data,
 
 #' Summary counts for optional UC8 header strip (player- or team-filtered data)
 compute_shot_summary_stats <- function(data, subject_label = NULL) {
-  goals <- sum(data$`shot.outcome.name` == "Goal", na.rm = TRUE)
-  outside_box <- sum(
-    data$`shot.outcome.name` == "Goal" & data$`location.x` < 102,
-    na.rm = TRUE
-  )
-  on_target <- sum(
-    data$`shot.outcome.name` %in% c("Goal", "Saved"),
-    na.rm = TRUE
-  )
+  outcomes <- data$`shot.outcome.name`
+  goals <- sum(outcomes == "Goal", na.rm = TRUE)
+  on_target <- sum(outcomes %in% c("Goal", "Saved"), na.rm = TRUE)
+  saved <- sum(outcomes == "Saved", na.rm = TRUE)
+  blocked <- sum(outcomes == "Blocked", na.rm = TRUE)
+  missed <- sum(outcomes %in% c("Off T", "Wayward", "Post"), na.rm = TRUE)
 
   name_prefix <- if (!is.null(subject_label) && nzchar(subject_label)) {
     paste0(toupper(subject_label), " — ")
@@ -263,39 +276,45 @@ compute_shot_summary_stats <- function(data, subject_label = NULL) {
 
   list(
     goals = goals,
-    goals_outside_box = outside_box,
     on_target = on_target,
+    saved = saved,
+    blocked = blocked,
+    missed = missed,
     total_shots = nrow(data),
     label = paste0(
       name_prefix,
-      "GOALS: ", goals,
-      "  |  GOALS OUTSIDE THE BOX: ", outside_box,
+      "SHOTS: ", nrow(data),
       "  |  ON TARGET: ", on_target,
-      "  |  SHOTS: ", nrow(data)
+      "  |  SAVED: ", saved,
+      "  |  MISSED: ", missed,
+      "  |  BLOCKED: ", blocked,
+      "  |  GOALS: ", goals
     )
   )
 }
 
 #' Compact horizontal bar chart for UC8 shot summary strip (SDC palette)
 plot_shot_summary_bar <- function(stats, subject_label = NULL) {
+  metrics <- c("Shots", "On target", "Saved", "Missed", "Blocked", "Goals")
   df <- tibble::tibble(
-    metric = factor(
-      c("Shots", "On target", "Outside box", "Goals"),
-      levels = c("Shots", "On target", "Outside box", "Goals")
-    ),
+    metric = factor(metrics, levels = rev(metrics)),
     value = c(
       stats$total_shots,
       stats$on_target,
-      stats$goals_outside_box,
+      stats$saved,
+      stats$missed,
+      stats$blocked,
       stats$goals
     )
   )
 
   fills <- c(
     Goals = SDC_PALETTE[["green"]],
-    `Outside box` = SDC_PALETTE[["orange"]],
+    Blocked = SDC_PALETTE[["purple"]],
+    Missed = SDC_PALETTE[["red"]],
+    Saved = SDC_PALETTE[["orange"]],
     `On target` = SDC_PALETTE[["blue"]],
-    Shots = SDC_PALETTE[["purple"]]
+    Shots = SDC_PALETTE[["cyan"]]
   )
 
   p <- ggplot(df, aes(x = .data$value, y = .data$metric, fill = .data$metric)) +
@@ -340,6 +359,462 @@ plot_shot_summary_bar <- function(stats, subject_label = NULL) {
   }
 
   p
+}
+
+#' Shot-outcome colours for pie and compact bar charts
+shot_outcome_pie_colors <- function() {
+  c(
+    Goals = SDC_PALETTE[["green"]],
+    Saved = SDC_PALETTE[["orange"]],
+    `On target` = SDC_PALETTE[["blue"]],
+    Missed = SDC_PALETTE[["red"]],
+    Blocked = SDC_PALETTE[["purple"]]
+  )
+}
+
+#' Compact horizontal bar chart of shot outcomes
+plot_shot_outcome_bar_compact <- function(stats, title = "Shots") {
+  df <- tibble::tibble(
+    outcome = factor(
+      c("Goals", "Saved", "On target", "Missed", "Blocked"),
+      levels = c("Blocked", "Missed", "On target", "Saved", "Goals")
+    ),
+    value = c(
+      stats$goals,
+      stats$saved,
+      stats$on_target,
+      stats$missed,
+      stats$blocked
+    )
+  )
+
+  fills <- shot_outcome_pie_colors()
+
+  ggplot(df, aes(x = .data$value, y = .data$outcome, fill = .data$outcome)) +
+    geom_col(width = 0.62, colour = NA) +
+    geom_text(
+      aes(label = .data$value),
+      hjust = -0.15,
+      family = SDC_FONTS$body,
+      size = 4.2,
+      colour = "#111111",
+      fontface = "bold"
+    ) +
+    scale_fill_manual(values = fills, guide = "none") +
+    scale_x_continuous(expand = expansion(mult = c(0, 0.2))) +
+    labs(title = title, x = NULL, y = NULL) +
+    theme_sdc(base_size = 11) +
+    theme(
+      plot.title = element_text(
+        family = SDC_FONTS$title,
+        face = "bold",
+        size = 11,
+        colour = "#111111",
+        hjust = 0,
+        margin = margin(b = 2)
+      ),
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(
+        family = SDC_FONTS$body,
+        size = 9.5,
+        colour = "#111111",
+        face = "plain"
+      ),
+      axis.ticks = element_blank(),
+      panel.grid = element_blank(),
+      plot.margin = margin(2, 10, 0, 2)
+    )
+}
+
+#' Square avatar placeholder for a featured-player headshot (optional image path)
+plot_player_image_slot <- function(image_path = NULL, subject_label = NULL) {
+  if (!requireNamespace("ggimage", quietly = TRUE)) {
+    install.packages("ggimage", repos = "https://cloud.r-project.org")
+  }
+
+  label <- if (!is.null(subject_label) && nzchar(subject_label)) {
+    "Insert\nimage"
+  } else {
+    "Insert\nimage"
+  }
+
+  p <- ggplot2::ggplot() +
+    ggplot2::annotate(
+      "rect",
+      xmin = 0.18,
+      xmax = 0.82,
+      ymin = 0.18,
+      ymax = 0.82,
+      fill = "#F7F7F7",
+      colour = "#C8C8C8",
+      linewidth = 0.55,
+      linetype = "22"
+    ) +
+    ggplot2::coord_fixed(ratio = 1, xlim = c(0, 1), ylim = c(0, 1), clip = "off", expand = FALSE) +
+    ggplot2::theme_void() +
+    ggplot2::theme(
+      aspect.ratio = 1,
+      plot.margin = ggplot2::margin(0, 4, 2, 4)
+    )
+
+  if (!is.null(image_path) && nzchar(image_path) && file.exists(image_path)) {
+    p <- p +
+      ggimage::geom_image(
+        ggplot2::aes(x = 0.5, y = 0.5, image = image_path),
+        size = 0.58
+      )
+  } else {
+    p <- p +
+      ggplot2::annotate(
+        "text",
+        x = 0.5,
+        y = 0.5,
+        label = label,
+        family = SDC_FONTS$body,
+        size = 2.2,
+        colour = "#9A9A9A",
+        lineheight = 0.9
+      )
+  }
+
+  p
+}
+
+#' Left summary block: compact shot outcome bars
+plot_shot_outcomes_with_player_slot <- function(stats,
+                                                subject_label = NULL,
+                                                player_image_path = NULL) {
+  plot_shot_outcome_bar_compact(stats)
+}
+
+#' Pie chart of shot outcomes (goals, saved, missed, blocked)
+plot_shot_outcome_pie <- function(stats, subject_label = NULL) {
+  df <- tibble::tibble(
+    outcome = c("Goals", "Saved", "Missed", "Blocked"),
+    value = c(stats$goals, stats$saved, stats$missed, stats$blocked)
+  ) %>%
+    dplyr::filter(.data$value > 0)
+
+  if (nrow(df) == 0) {
+    df <- tibble::tibble(outcome = "No shots", value = 1)
+  }
+
+  fills <- shot_outcome_pie_colors()
+
+  p <- ggplot(df, aes(x = "", y = .data$value, fill = .data$outcome)) +
+    geom_col(width = 1, colour = "white", linewidth = 0.6) +
+    coord_polar(theta = "y") +
+    geom_text(
+      aes(label = paste0(.data$outcome, "\n", .data$value)),
+      position = position_stack(vjust = 0.5),
+      family = SDC_FONTS$body,
+      size = 4.2,
+      colour = "#111111",
+      lineheight = 0.95,
+      fontface = "bold"
+    ) +
+    scale_fill_manual(values = fills, guide = "none") +
+    labs(x = NULL, y = NULL, fill = NULL) +
+    theme_void(base_family = SDC_FONTS$body) +
+    theme(
+      plot.margin = margin(2, 4, 2, 4),
+      legend.position = "none"
+    )
+
+  if (!is.null(subject_label) && nzchar(subject_label)) {
+    p <- p +
+      labs(title = toupper(subject_label)) +
+      theme(
+        plot.title = element_text(
+          family = SDC_FONTS$title,
+          face = "bold",
+          size = 11,
+          colour = "#111111",
+          hjust = 0.5,
+          margin = margin(b = 3)
+        )
+      )
+  }
+
+  p
+}
+
+#' Center-forward attacking metrics for the rose chart (no shot-count overlap)
+CF_ATTACKING_ROSE_METRICS <- list(
+  list(label = "NP xG", column = "player_match_np_xg", digits = 2),
+  list(label = "Box touches", column = "player_match_touches_inside_box", digits = 0),
+  list(label = "xG chain", column = "player_match_op_xgchain", digits = 2),
+  list(label = "Pressures", column = "player_match_pressures", digits = 0),
+  list(label = "F3 passes", column = "player_match_op_f3_passes", digits = 0),
+  list(label = "Aerials won", column = "player_match_successful_aerials", digits = 0),
+  list(label = "Press regains", column = "player_match_pressure_regains", digits = 0)
+)
+
+#' @rdname CF_ATTACKING_ROSE_METRICS
+CF_ATTACKING_PIZZA_METRICS <- CF_ATTACKING_ROSE_METRICS
+
+#' Normalize a player metric against the match pool (0–1 scale)
+normalize_match_player_metric <- function(player_match_stats_df,
+                                          metric_col,
+                                          player_id,
+                                          min_minutes = 30) {
+  pool <- player_match_stats_df %>%
+    dplyr::filter(
+      !is.na(.data$player_match_minutes),
+      .data$player_match_minutes >= min_minutes
+    )
+
+  if (nrow(pool) == 0 || !metric_col %in% names(pool)) {
+    return(0)
+  }
+
+  player_val <- pool %>%
+    dplyr::filter(.data$player_id == !!player_id) %>%
+    dplyr::pull(.data[[metric_col]])
+
+  if (length(player_val) == 0 || is.na(player_val[[1]])) {
+    return(0)
+  }
+
+  match_max <- max(pool[[metric_col]], na.rm = TRUE)
+  if (is.na(match_max) || match_max <= 0) {
+    return(0)
+  }
+
+  as.numeric(pmin(player_val[[1]] / match_max, 1))
+}
+
+#' Build normalized center-forward attacking metrics for a rose chart
+compute_cf_attacking_rose_metrics <- function(player_match_stats_df, player_id) {
+  purrr::map_dfr(CF_ATTACKING_ROSE_METRICS, function(spec) {
+    raw <- player_match_stats_df %>%
+      dplyr::filter(.data$player_id == !!player_id) %>%
+      dplyr::pull(.data[[spec$column]])
+
+    raw_val <- if (length(raw) == 0 || is.na(raw[[1]])) 0 else as.numeric(raw[[1]])
+    normalized <- normalize_match_player_metric(
+      player_match_stats_df,
+      spec$column,
+      player_id
+    )
+
+    display <- if (spec$digits == 0) {
+      as.character(as.integer(round(raw_val)))
+    } else {
+      format(round(raw_val, spec$digits), nsmall = spec$digits)
+    }
+
+    tibble::tibble(
+      metric = spec$label,
+      raw_value = raw_val,
+      value = normalized,
+      display = display
+    )
+  })
+}
+
+#' @rdname compute_cf_attacking_rose_metrics
+compute_cf_attacking_pizza_metrics <- compute_cf_attacking_rose_metrics
+
+#' Nightingale rose chart of center-forward attacking metrics (match-normalized)
+plot_cf_attacking_rose <- function(metrics_df,
+                                   fill_color = SDC_PALETTE[["red"]],
+                                   title = "Attacking profile") {
+  if (nrow(metrics_df) == 0) {
+    stop("No attacking metrics available for rose chart.", call. = FALSE)
+  }
+
+  metrics_df <- metrics_df %>%
+    dplyr::mutate(
+      metric_axis = paste0(.data$metric, "\n", .data$display),
+      metric = factor(.data$metric_axis, levels = .data$metric_axis),
+      value_plot = pmax(.data$value, 0.04)
+    )
+
+  ggplot(metrics_df, aes(x = .data$metric, y = .data$value_plot)) +
+    geom_hline(
+      yintercept = c(0.25, 0.5, 0.75),
+      colour = "#E6E6E6",
+      linewidth = 0.35
+    ) +
+    geom_col(
+      fill = fill_color,
+      width = 0.88,
+      colour = "white",
+      linewidth = 0.45
+    ) +
+    coord_polar(start = -pi / 2, clip = "off") +
+    scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+    labs(title = title, x = NULL, y = NULL) +
+    theme_void(base_family = SDC_FONTS$body) +
+    theme(
+      plot.title = element_text(
+        family = SDC_FONTS$title,
+        face = "bold",
+        size = 10.5,
+        colour = "#111111",
+        hjust = 0.5,
+        margin = margin(b = 3)
+      ),
+      axis.text.x = element_text(
+        family = SDC_FONTS$body,
+        size = 7.8,
+        colour = "#111111",
+        face = "plain",
+        lineheight = 0.92,
+        margin = margin(t = 6, b = 2)
+      ),
+      plot.margin = margin(6, 14, 6, 14),
+      legend.position = "none"
+    )
+}
+
+#' @rdname plot_cf_attacking_rose
+plot_cf_attacking_pizza <- plot_cf_attacking_rose
+
+#' Compact match summary table for a featured player
+plot_player_match_summary_table <- function(player_match_stats_df,
+                                            player_id,
+                                            subject_label = NULL) {
+  row <- player_match_stats_df %>%
+    dplyr::filter(.data$player_id == !!player_id) %>%
+    dplyr::slice(1)
+
+  if (nrow(row) == 0) {
+    stop("Player not found in player_match_stats.", call. = FALSE)
+  }
+
+  fmt_num <- function(x, digits = 0) {
+    if (is.na(x)) {
+      return("–")
+    }
+    if (digits == 0) {
+      as.character(as.integer(round(x)))
+    } else {
+      format(round(x, digits), nsmall = digits)
+    }
+  }
+
+  fmt_pct <- function(x) {
+    if (is.na(x)) {
+      return("–")
+    }
+    scales::percent(x, accuracy = 1)
+  }
+
+  summary_df <- tibble::tibble(
+    stat = c(
+      "Minutes",
+      "Pass accuracy",
+      "Assists",
+      "OP xG buildup",
+      "Touches",
+      "Shot OBV",
+      "Successful passes"
+    ),
+    value = c(
+      fmt_num(row$player_match_minutes, 0),
+      if ("player_match_passing_ratio" %in% names(row)) {
+        fmt_pct(row$player_match_passing_ratio)
+      } else {
+        "–"
+      },
+      fmt_num(row$player_match_assists, 0),
+      fmt_num(row$player_match_op_xgbuildup, 2),
+      fmt_num(row$player_match_touches, 0),
+      fmt_num(row$player_match_obv_shot, 2),
+      fmt_num(row$player_match_successful_passes, 0)
+    ),
+    row_id = seq_len(7)
+  )
+
+  title_label <- if (!is.null(subject_label) && nzchar(subject_label)) {
+    toupper(subject_label)
+  } else {
+    "MATCH SUMMARY"
+  }
+
+  ggplot(summary_df, aes(x = 1, y = -row_id)) +
+    annotate(
+      "text",
+      x = 0.15,
+      y = 0.4,
+      label = title_label,
+      family = SDC_FONTS$title,
+      fontface = "bold",
+      size = 4.8,
+      colour = "#111111",
+      hjust = 0
+    ) +
+    geom_text(
+      aes(x = 0.15, label = stat),
+      family = SDC_FONTS$body,
+      size = 4.2,
+      colour = "#111111",
+      hjust = 0
+    ) +
+    geom_text(
+      aes(x = 0.95, label = value),
+      family = SDC_FONTS$body,
+      size = 4.2,
+      colour = "#111111",
+      fontface = "bold",
+      hjust = 1
+    ) +
+    coord_cartesian(xlim = c(0, 1), ylim = c(-nrow(summary_df) - 0.5, 0.8), clip = "off") +
+    theme_void() +
+    theme(plot.margin = margin(2, 8, 2, 8))
+}
+
+#' Summary row: player slot + shot bars, attacking rose chart, and match table
+plot_shot_map_summary_row <- function(stats,
+                                      subject_label = NULL,
+                                      player_match_stats_df = NULL,
+                                      player_id = NULL,
+                                      shot_color = SDC_PALETTE[["red"]],
+                                      player_image_path = NULL) {
+  if (!requireNamespace("patchwork", quietly = TRUE)) {
+    install.packages("patchwork", repos = "https://cloud.r-project.org")
+  }
+
+  left_plot <- plot_shot_outcomes_with_player_slot(
+    stats = stats,
+    subject_label = subject_label,
+    player_image_path = player_image_path
+  )
+
+  if (
+    is.null(player_match_stats_df) ||
+      is.null(player_id) ||
+      nrow(player_match_stats_df) == 0
+  ) {
+    return(left_plot)
+  }
+
+  rose_metrics <- compute_cf_attacking_rose_metrics(
+    player_match_stats_df,
+    player_id = player_id
+  )
+
+  rose_plot <- plot_cf_attacking_rose(
+    rose_metrics,
+    fill_color = shot_color,
+    title = "Attacking profile"
+  )
+
+  table_plot <- plot_player_match_summary_table(
+    player_match_stats_df,
+    player_id = player_id,
+    subject_label = subject_label
+  )
+
+  patchwork::wrap_plots(
+    left_plot,
+    rose_plot,
+    table_plot,
+    ncol = 3,
+    widths = c(0.28, 0.40, 0.32)
+  )
 }
 
 #' Compute minute-label positions that clear the ball icon and goal frame
@@ -408,7 +883,8 @@ viz_shot_map_goal_net <- function(events_df,
                                   subtitle = NULL,
                                   title_suffix = "shot map and goal mouth",
                                   exclude_penalties = TRUE,
-                                  shot_color = SDC_PALETTE[["blue"]],
+                                  exclude_shot_minutes = NULL,
+                                  shot_color = SDC_PALETTE[["red"]],
                                   team_colors = NULL,
                                   lightest_color = NULL,
                                   gradient_colors = NULL,
@@ -417,7 +893,7 @@ viz_shot_map_goal_net <- function(events_df,
                                   goal_height_m = GOAL_HEIGHT_M,
                                   goal_shape_by = c("binary", "outcome"),
                                   show_minute_labels = TRUE,
-                                  show_xg_labels = TRUE,
+                                  show_xg_labels = FALSE,
                                   show_trajectories = TRUE,
                                   show_summary = TRUE,
                                   xg_limits = c(0, 0.8),
@@ -428,10 +904,14 @@ viz_shot_map_goal_net <- function(events_df,
                                   show_goal_net_legend = FALSE,
                                   show_pitch_subtitle = FALSE,
                                   marker_size = 4.5,
-                                  icon_size = 0.095,
+                                  icon_size = 0.12,
                                   icon_set = "footprint",
                                   goal_net_use_ball_icons = TRUE,
                                   goal_net_icon_size = 0.22,
+                                  show_attacking_heatmap = FALSE,
+                                  heatmap_color = NULL,
+                                  player_match_stats_df = NULL,
+                                  player_image_path = NULL,
                                   team_labels = NULL,
                                   display_home = NULL,
                                   display_away = NULL) {
@@ -445,6 +925,7 @@ viz_shot_map_goal_net <- function(events_df,
     both_teams = both_teams,
     match_id = match_id,
     exclude_penalties = exclude_penalties,
+    exclude_shot_minutes = exclude_shot_minutes,
     restrict_to_attacking_third = FALSE
   )
 
@@ -503,7 +984,9 @@ viz_shot_map_goal_net <- function(events_df,
     add_goal_net_display_positions(
       goal_width_m = goal_width_m,
       goal_height_m = goal_height_m,
-      icon_size = goal_net_icon_size
+      icon_size = goal_net_icon_size,
+      miss_offset_x_frac = 0.055,
+      miss_offset_y_frac = 0.14
     )
 
   if (isTRUE(goal_net_use_ball_icons)) {
@@ -515,7 +998,11 @@ viz_shot_map_goal_net <- function(events_df,
   goal_layout <- goal_panel_layout(
     goal_width_m = goal_width_m,
     goal_height_m = goal_height_m,
-    display_tallness = goal_display_tallness,
+    display_tallness = if (isTRUE(show_attacking_heatmap)) {
+      2.1
+    } else {
+      goal_display_tallness
+    },
     icon_size = goal_net_icon_size
   )
 
@@ -622,6 +1109,14 @@ viz_shot_map_goal_net <- function(events_df,
       scale_colour_identity()
   }
 
+  goal_legend_plot <- plot_goal_mouth_ball_legend()
+  goal_plot <- patchwork::wrap_plots(
+    goal_plot,
+    goal_legend_plot,
+    ncol = 1,
+    heights = c(1, 0.12)
+  )
+
   pitch_data <- add_shot_trajectory_endpoints(data) %>%
     add_colored_shot_icons(
       shot_color = shot_color,
@@ -637,7 +1132,7 @@ viz_shot_map_goal_net <- function(events_df,
     floor(min(pitch_data$location.x, na.rm = TRUE) - 1.5)
   )
 
-  pitch_plot <- ggplot() +
+  pitch_field_plot <- ggplot() +
     draw_pitch_half_attacking(x_min = pitch_x_min) +
     build_shot_map_pitch_icon_layers(
       data = pitch_data,
@@ -661,15 +1156,30 @@ viz_shot_map_goal_net <- function(events_df,
     )
 
   if (isTRUE(show_pitch_subtitle)) {
-    pitch_plot <- pitch_plot +
+    pitch_field_plot <- pitch_field_plot +
       labs(subtitle = "Shot origins and trajectories") +
       theme(
         plot.subtitle = element_text(hjust = 0.5, face = "bold", size = rel(1.05))
       )
   }
 
+  if (!requireNamespace("patchwork", quietly = TRUE)) {
+    install.packages("patchwork", repos = "https://cloud.r-project.org")
+  }
+
+  heatmap_legend <- NULL
+  if (isTRUE(show_attacking_heatmap)) {
+    heatmap_legend <- prepare_shot_map_attacking_heatmap(
+      events_df = events_df,
+      player_id = player_id,
+      player_name = player_name,
+      match_id = match_id,
+      heat_color = heatmap_color %||% shot_color
+    )
+  }
+
   pitch_plot <- assemble_shot_map(
-    pitch_plot,
+    pitch_field_plot,
     icon_set = icon_set,
     icon_color = shot_color,
     shot_colors = shot_colors,
@@ -678,26 +1188,56 @@ viz_shot_map_goal_net <- function(events_df,
     show_trajectory_legend = isTRUE(show_trajectories)
   )
 
-  if (!requireNamespace("patchwork", quietly = TRUE)) {
-    install.packages("patchwork", repos = "https://cloud.r-project.org")
+  if (isTRUE(show_attacking_heatmap)) {
+    heatmap_panel <- assemble_player_heatmap(
+      heatmap_legend$plot,
+      heat_colors = heatmap_legend$heat_colors,
+      legend_title = "Share of attacking actions",
+      legend_limits = heatmap_legend$legend_limits,
+      compact_legend = TRUE
+    )
+
+    goal_row <- patchwork::wrap_plots(
+      goal_plot,
+      heatmap_panel,
+      ncol = 2,
+      widths = c(0.52, 0.48)
+    )
+  } else {
+    goal_row <- wrap_goal_panel_block(
+      goal_plot,
+      width_frac = goal_panel_width_frac
+    )
   }
 
-  goal_row <- wrap_goal_panel_block(
-    goal_plot,
-    width_frac = goal_panel_width_frac
-  )
+  goal_section_height_eff <- if (isTRUE(show_attacking_heatmap)) {
+    0.58
+  } else {
+    goal_section_height
+  }
 
-  pitch_height <- 1 - goal_section_height
+  pitch_height <- 1 - goal_section_height_eff
   panels <- list(goal_row, pitch_plot)
-  heights <- c(goal_section_height, pitch_height)
+  heights <- c(goal_section_height_eff, pitch_height)
 
   if (show_summary) {
-    summary_plot <- plot_shot_summary_bar(stats, subject_label = label)
+    summary_plot <- plot_shot_map_summary_row(
+      stats = stats,
+      subject_label = label,
+      player_match_stats_df = player_match_stats_df,
+      player_id = player_id,
+      shot_color = shot_color,
+      player_image_path = player_image_path
+    )
 
     panels <- c(list(summary_plot), panels)
-    summary_height <- 0.13
+    summary_height <- 0.24
     scale <- (1 - summary_height)
-    heights <- c(summary_height, goal_section_height * scale, pitch_height * scale)
+    heights <- c(
+      summary_height,
+      goal_section_height_eff * scale,
+      pitch_height * scale
+    )
   }
 
   combined <- patchwork::wrap_plots(panels, ncol = 1, heights = heights) +
