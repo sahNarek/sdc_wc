@@ -2487,6 +2487,152 @@ set_piece_type_colors <- function() {
   )
 }
 
+#' Non-red SDC colours for the four shot-ending set-piece routines
+SET_PIECE_SHOT_ROUTINE_COLORS <- c(
+  SDC_PALETTE[["blue"]],
+  SDC_PALETTE[["orange"]],
+  SDC_PALETTE[["green"]],
+  SDC_PALETTE[["purple"]]
+)
+
+#' Shot-ending possessions only, in chronological order
+filter_shot_set_piece_possessions <- function(possessions_df) {
+  possessions_df %>%
+    dplyr::filter(.data$ended_shot | .data$shot_xg > 0) %>%
+    dplyr::arrange(.data$minute, .data$possession)
+}
+
+#' Palette for shot routines numbered 1–4 (heatmap markers, table, arrows)
+assign_shot_routine_palette <- function(possessions_df,
+                                        colors = SET_PIECE_SHOT_ROUTINE_COLORS) {
+  shot_df <- filter_shot_set_piece_possessions(possessions_df)
+  if (nrow(shot_df) == 0L) {
+    return(tibble::tibble(
+      possession = integer(),
+      routine_id = integer(),
+      routine_color = character()
+    ))
+  }
+
+  tibble::tibble(
+    possession = shot_df$possession,
+    routine_id = seq_len(nrow(shot_df)),
+    routine_color = colors[seq_len(nrow(shot_df))]
+  )
+}
+
+#' Chronological routine IDs for heatmap markers and reference table
+assign_set_piece_routine_ids <- function(possessions_df) {
+  possessions_df %>%
+    dplyr::arrange(.data$minute, .data$possession) %>%
+    dplyr::mutate(routine_id = dplyr::row_number())
+}
+
+#' One distinct SDC palette colour per numbered routine (no red)
+set_piece_routine_palette <- function(possessions_df,
+                                      colors = SET_PIECE_SHOT_ROUTINE_COLORS) {
+  assign_shot_routine_palette(possessions_df, colors = colors)
+}
+
+#' Display label for set-piece type in tables
+format_set_piece_type_label <- function(set_piece_types) {
+  dplyr::case_when(
+    set_piece_types == "Corner" ~ "Corner kick",
+    set_piece_types == "Free kick" ~ "Free kick",
+    TRUE ~ set_piece_types
+  )
+}
+
+#' Compact table of shot-ending routines (#, type, xG) for the pie column
+build_set_piece_shot_reference_table <- function(possessions_df) {
+  ref_df <- filter_shot_set_piece_possessions(possessions_df) %>%
+    dplyr::left_join(assign_shot_routine_palette(possessions_df), by = "possession") %>%
+    dplyr::mutate(
+      type_label = format_set_piece_type_label(.data$set_piece_type),
+      xg_label = format(round(.data$shot_xg, 2), nsmall = 2)
+    )
+
+  if (nrow(ref_df) == 0) {
+    return(ggplot2::ggplot() + ggplot2::theme_void())
+  }
+
+  col_x <- c("#" = 0.12, "Type" = 0.46, "xG" = 0.82)
+  header_y <- 0.92
+  row_gap <- 0.18
+  row_ys <- header_y - 0.14 - (seq_len(nrow(ref_df)) - 1L) * row_gap
+
+  p <- ggplot2::ggplot() +
+    ggplot2::annotate(
+      "text",
+      x = unname(col_x),
+      y = header_y,
+      label = names(col_x),
+      family = SDC_FONTS$title,
+      fontface = "bold",
+      size = 2.6,
+      colour = SDC_ARTICLE_COLORS$ink
+    ) +
+    ggplot2::annotate(
+      "segment",
+      x = 0.04,
+      xend = 0.96,
+      y = header_y - 0.06,
+      yend = header_y - 0.06,
+      colour = SDC_ARTICLE_COLORS$grid,
+      linewidth = 0.35
+    )
+
+  for (i in seq_len(nrow(ref_df))) {
+    row <- ref_df[i, , drop = FALSE]
+    p <- p +
+      ggplot2::annotate(
+        "text",
+        x = col_x[["#"]],
+        y = row_ys[i],
+        label = row$routine_id,
+        family = SDC_FONTS$title,
+        fontface = "bold",
+        size = 2.8,
+        colour = row$routine_color
+      ) +
+      ggplot2::annotate(
+        "text",
+        x = col_x[["Type"]],
+        y = row_ys[i],
+        label = row$type_label,
+        family = SDC_FONTS$body,
+        size = 2.5,
+        colour = SDC_ARTICLE_COLORS$ink
+      ) +
+      ggplot2::annotate(
+        "text",
+        x = col_x[["xG"]],
+        y = row_ys[i],
+        label = row$xg_label,
+        family = SDC_FONTS$body,
+        size = 2.5,
+        colour = SDC_ARTICLE_COLORS$ink
+      )
+  }
+
+  p +
+    ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE, clip = "off") +
+    ggplot2::labs(title = "Shot routines") +
+    ggplot2::theme_void() +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(
+        family = SDC_FONTS$title,
+        face = "bold",
+        size = 8.5,
+        colour = SDC_ARTICLE_COLORS$ink,
+        hjust = 0.5,
+        margin = ggplot2::margin(b = 0, t = 0)
+      ),
+      plot.background = ggplot2::element_rect(fill = NA, colour = NA),
+      plot.margin = ggplot2::margin(t = 0, r = 6, b = 2, l = 6)
+    )
+}
+
 #' Completed pass arrows for attacking-zone set-piece possessions
 collect_attacking_set_piece_pass_edges <- function(events_df,
                                                  team_name,
@@ -2606,35 +2752,58 @@ build_set_piece_origin_heatmap <- function(events_df,
                                            team_name,
                                            match_id,
                                            possessions_df,
+                                           arrow_possessions_df = NULL,
                                            heat_color = SDC_PALETTE[["red"]],
                                            highlight_possessions = NULL,
                                            x_min = 0,
                                            x_max = 120,
                                            n_x_bins = 6L,
                                            n_y_bins = 5L) {
+  shot_possessions_df <- filter_shot_set_piece_possessions(possessions_df)
+  arrow_possessions_df <- arrow_possessions_df %||% shot_possessions_df
+
   set_pieces <- identify_team_set_piece_possessions(
     events_df,
     team_name = team_name,
     match_id = match_id
   ) %>%
-    dplyr::filter(.data$possession %in% possessions_df$possession)
+    dplyr::filter(.data$possession %in% shot_possessions_df$possession)
 
   if (nrow(set_pieces) == 0) {
     return(ggplot2::ggplot() + ggplot2::theme_void())
   }
 
   direction <- infer_team_attacking_high_x(events_df)
-  type_colors <- set_piece_type_colors()
+  routine_palette <- assign_shot_routine_palette(possessions_df)
+  routine_colors <- stats::setNames(
+    routine_palette$routine_color,
+    as.character(routine_palette$routine_id)
+  )
   pass_edges <- collect_attacking_set_piece_pass_edges(
     events_df = events_df,
     team_name = team_name,
-    possessions_df = possessions_df
+    possessions_df = arrow_possessions_df
   )
   shot_edges <- collect_attacking_set_piece_shot_edges(
     events_df = events_df,
     team_name = team_name,
-    possessions_df = possessions_df
+    possessions_df = arrow_possessions_df
   )
+
+  if (nrow(pass_edges) > 0) {
+    pass_edges <- pass_edges %>%
+      dplyr::left_join(
+        routine_palette %>% dplyr::select(.data$possession, .data$routine_id),
+        by = "possession"
+      )
+  }
+  if (nrow(shot_edges) > 0) {
+    shot_edges <- shot_edges %>%
+      dplyr::left_join(
+        routine_palette %>% dplyr::select(.data$possession, .data$routine_id),
+        by = "possession"
+      )
+  }
 
   origins <- set_pieces %>%
     dplyr::left_join(direction, by = c("team.name" = "team.name", "period" = "period")) %>%
@@ -2652,17 +2821,15 @@ build_set_piece_origin_heatmap <- function(events_df,
     dplyr::ungroup() %>%
     dplyr::select(-.data$norm) %>%
     dplyr::left_join(
-      possessions_df %>%
+      shot_possessions_df %>%
         dplyr::select(.data$possession, .data$outcome_bucket, .data$minute),
       by = "possession"
     ) %>%
+    dplyr::left_join(routine_palette, by = "possession") %>%
     dplyr::mutate(
       pitch_x = pmin(pmax(.data$pitch_x, x_min), x_max),
       pitch_y = pmin(pmax(.data$pitch_y, 0), 80),
-      set_piece_type = factor(
-        .data$set_piece_type,
-        levels = names(type_colors)
-      )
+      routine_id = factor(as.character(.data$routine_id), levels = names(routine_colors))
     )
 
   x_breaks <- seq(x_min, x_max, length.out = n_x_bins + 1L)
@@ -2745,7 +2912,7 @@ build_set_piece_origin_heatmap <- function(events_df,
   if (nrow(pass_edges) > 0) {
     pass_edges <- pass_edges %>%
       dplyr::mutate(
-        set_piece_type = factor(.data$set_piece_type, levels = names(type_colors))
+        routine_id = factor(as.character(.data$routine_id), levels = names(routine_colors))
       )
     p <- p +
       ggplot2::geom_segment(
@@ -2755,7 +2922,8 @@ build_set_piece_origin_heatmap <- function(events_df,
           y = .data$y_from,
           xend = .data$x_to,
           yend = .data$y_to,
-          colour = .data$set_piece_type
+          colour = .data$routine_id,
+          group = .data$possession
         ),
         linetype = "dashed",
         alpha = 0.35,
@@ -2773,7 +2941,8 @@ build_set_piece_origin_heatmap <- function(events_df,
           y = .data$y_from,
           xend = .data$x_to,
           yend = .data$y_to,
-          colour = .data$set_piece_type
+          colour = .data$routine_id,
+          group = .data$possession
         ),
         linetype = "dashed",
         alpha = 0.95,
@@ -2789,7 +2958,7 @@ build_set_piece_origin_heatmap <- function(events_df,
   if (nrow(shot_edges) > 0) {
     shot_edges <- shot_edges %>%
       dplyr::mutate(
-        set_piece_type = factor(.data$set_piece_type, levels = names(type_colors))
+        routine_id = factor(as.character(.data$routine_id), levels = names(routine_colors))
       )
     p <- p +
       ggplot2::geom_segment(
@@ -2799,7 +2968,8 @@ build_set_piece_origin_heatmap <- function(events_df,
           y = .data$y_from,
           xend = .data$x_to,
           yend = .data$y_to,
-          colour = .data$set_piece_type
+          colour = .data$routine_id,
+          group = .data$possession
         ),
         linetype = "solid",
         alpha = 0.4,
@@ -2817,7 +2987,8 @@ build_set_piece_origin_heatmap <- function(events_df,
           y = .data$y_from,
           xend = .data$x_to,
           yend = .data$y_to,
-          colour = .data$set_piece_type
+          colour = .data$routine_id,
+          group = .data$possession
         ),
         linetype = "solid",
         alpha = 0.98,
@@ -2830,17 +3001,31 @@ build_set_piece_origin_heatmap <- function(events_df,
       )
   }
 
+  legend_routine_ids <- as.character(seq_len(nrow(routine_palette)))
+
   p <- p +
     ggplot2::geom_point(
+      data = origins,
+      ggplot2::aes(x = .data$pitch_x, y = .data$pitch_y),
+      fill = origins$routine_color,
+      colour = "white",
+      shape = 21,
+      stroke = 0.45,
+      size = 4.6,
+      alpha = 1,
+      inherit.aes = FALSE
+    ) +
+    ggplot2::geom_text(
       data = origins,
       ggplot2::aes(
         x = .data$pitch_x,
         y = .data$pitch_y,
-        colour = .data$set_piece_type
+        label = as.character(.data$routine_id)
       ),
-      shape = 16,
+      family = SDC_FONTS$title,
+      fontface = "bold",
       size = 2.35,
-      alpha = 1
+      colour = "white"
     ) +
     ggplot2::geom_segment(
       data = tibble::tibble(x = 22, xend = 98, y = 5, yend = 5),
@@ -2861,9 +3046,9 @@ build_set_piece_origin_heatmap <- function(events_df,
       guide = "none"
     ) +
     ggplot2::scale_colour_manual(
-      values = type_colors,
+      values = routine_colors,
       name = NULL,
-      breaks = names(type_colors),
+      breaks = legend_routine_ids,
       guide = ggplot2::guide_legend(
         nrow = 1,
         byrow = TRUE,
@@ -2872,10 +3057,10 @@ build_set_piece_origin_heatmap <- function(events_df,
           linewidth = 0.9,
           linetype = "dashed",
           shape = 16,
-          size = 3.2
+          size = 3
         ),
-        keywidth = ggplot2::unit(0.45, "cm"),
-        keyheight = ggplot2::unit(0.45, "cm")
+        keywidth = ggplot2::unit(0.4, "cm"),
+        keyheight = ggplot2::unit(0.4, "cm")
       )
     ) +
     ggplot2::scale_x_continuous(limits = c(x_min, plot_x_max), expand = c(0, 0)) +
@@ -2884,8 +3069,8 @@ build_set_piece_origin_heatmap <- function(events_df,
     ggplot2::labs(
       title = "Set-piece locations & passing",
       subtitle = paste0(
-        "Dashed = passes (", nrow(pass_edges), ") · solid = shots (", nrow(shot_edges), ")",
-        " · colour = set-piece type"
+        "Markers 1–", nrow(origins), " = shot routines · dashed = passes (", nrow(pass_edges), ")",
+        " · solid = shots (", nrow(shot_edges), ")"
       ),
       x = NULL,
       y = NULL
@@ -3036,7 +3221,7 @@ build_set_piece_outcome_pie_plot <- function(outcome_counts,
       panel.grid = ggplot2::element_blank(),
       panel.background = ggplot2::element_rect(fill = NA, colour = NA),
       plot.background = ggplot2::element_rect(fill = NA, colour = NA),
-      plot.margin = ggplot2::margin(4, 8, 4, 8)
+      plot.margin = ggplot2::margin(t = 0, r = 8, b = -10, l = 8)
     )
 }
 
@@ -3278,6 +3463,15 @@ build_set_piece_performance_summary <- function(performance,
     pie_colors,
     total_xg = performance$total_xg
   )
+  shot_table <- build_set_piece_shot_reference_table(performance$possessions)
+  pie_column <- patchwork::wrap_plots(
+    pie_plot,
+    shot_table,
+    ncol = 1,
+    heights = c(0.46, 0.54)
+  )
+
+  arrow_possessions <- filter_shot_set_piece_possessions(performance$possessions)
 
   heatmap_plot <- if (!is.null(events_df) && !is.null(team_name)) {
     build_set_piece_origin_heatmap(
@@ -3285,6 +3479,7 @@ build_set_piece_performance_summary <- function(performance,
       team_name = team_name,
       match_id = match_id,
       possessions_df = performance$possessions,
+      arrow_possessions_df = arrow_possessions,
       heat_color = team_color,
       highlight_possessions = highlight_possessions
     )
@@ -3295,7 +3490,7 @@ build_set_piece_performance_summary <- function(performance,
   if (!is.null(heatmap_plot)) {
     patchwork::wrap_plots(
       detail_column,
-      pie_plot,
+      pie_column,
       heatmap_plot,
       ncol = 3,
       widths = c(1.05, 0.82, 1.05)
@@ -3331,7 +3526,7 @@ build_set_piece_performance_summary <- function(performance,
           )
       )
   } else {
-    patchwork::wrap_plots(detail_column, pie_plot, ncol = 2, widths = c(1.15, 0.85))
+    patchwork::wrap_plots(detail_column, pie_column, ncol = 2, widths = c(1.15, 0.85))
   }
 }
 
