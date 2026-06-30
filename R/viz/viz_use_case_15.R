@@ -811,13 +811,12 @@ viz_structure_momentum_grid <- function(events_df,
     root = root
   )
 
-  panel_c <- viz_match_passing_networks_halves(
+  panel_c <- viz_match_passing_networks_combined(
     events_df,
     match_id = match_id,
     meta = meta,
     home_color = home_color,
-    away_color = away_color,
-    lineups_df = lineups_df
+    away_color = away_color
   )
 
   top_row <- patchwork::wrap_plots(
@@ -831,7 +830,7 @@ viz_structure_momentum_grid <- function(events_df,
     patchwork::plot_spacer(),
     panel_c,
     ncol = 1,
-    heights = c(0.40, 0.015, 0.585)
+    heights = c(0.22, 0.008, 0.772)
   )
 
   grid_body +

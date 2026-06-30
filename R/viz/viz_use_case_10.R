@@ -207,22 +207,26 @@ compute_passing_network <- function(events_df,
 build_passing_network_plot <- function(network,
                                        team_color = SDC_PALETTE[["blue"]],
                                        substitute_ids = NULL,
-                                       edge_alpha = 0.55,
+                                       edge_alpha = NULL,
+                                       edge_alpha_range = c(0.04, 0.92),
                                        max_edge_width = 4.5,
                                        label_size = 2.8,
                                        compact = FALSE,
+                                       show_substitute_rings = FALSE,
                                        pitch_style = c("sb", "default")) {
   pitch_style <- match.arg(pitch_style)
   nodes <- network$nodes
   edges <- network$edges
   max_count <- max(edges$pass_count, na.rm = TRUE)
+  min_count <- min(edges$pass_count, na.rm = TRUE)
   substitute_ids <- substitute_ids %||% integer(0)
   nodes <- nodes %>%
     dplyr::mutate(is_sub = .data$player_id %in% substitute_ids)
 
-  size_range <- if (isTRUE(compact)) c(2.2, 5.2) else c(3.2, 7.5)
-  stroke_base <- if (isTRUE(compact)) 0.75 else 1.0
-  pitch_linewidth <- if (isTRUE(compact)) 0.4 else 0.45
+  size_range <- if (isTRUE(compact)) c(3.2, 8.5) else c(5.5, 13)
+  stroke_base <- if (isTRUE(compact)) 0.85 else 1.05
+  pitch_linewidth <- if (isTRUE(compact)) 0.4 else 0.35
+  plot_margin <- if (isTRUE(compact)) 4 else 1
 
   pitch_layers <- if (pitch_style == "sb") {
     c(
@@ -233,11 +237,15 @@ build_passing_network_plot <- function(network,
           xmax = 120,
           ymin = 0,
           ymax = 80,
-          fill = "#F3F6F0",
+          fill = "#FAFAFA",
           colour = NA
         )
       ),
-      draw_pitch_sb(colour = "#3D3D3D", linewidth = pitch_linewidth)
+      draw_pitch_markings(colour = "#C8C8C8", linewidth = pitch_linewidth),
+      list(
+        ggplot2::scale_y_reverse(),
+        ggplot2::coord_fixed(ratio = 105 / 100, clip = "off")
+      )
     )
   } else {
     c(
@@ -257,7 +265,21 @@ build_passing_network_plot <- function(network,
     p <- p + layer
   }
 
-  p <- p +
+  edge_layer <- if (is.null(edge_alpha)) {
+    ggplot2::geom_segment(
+      data = edges,
+      ggplot2::aes(
+        x = .data$x_from,
+        y = .data$y_from,
+        xend = .data$x_to,
+        yend = .data$y_to,
+        linewidth = .data$pass_count,
+        alpha = .data$pass_count
+      ),
+      colour = team_color,
+      lineend = "round"
+    )
+  } else {
     ggplot2::geom_segment(
       data = edges,
       ggplot2::aes(
@@ -270,30 +292,43 @@ build_passing_network_plot <- function(network,
       colour = team_color,
       alpha = edge_alpha,
       lineend = "round"
-    ) +
+    )
+  }
+
+  p <- p +
+    edge_layer +
     ggplot2::scale_linewidth_continuous(
-      range = c(0.35, max_edge_width),
-      limits = c(1, max_count),
+      range = c(0.25, max_edge_width),
+      limits = c(min_count, max_count),
       guide = "none"
     )
 
-  if (any(nodes$is_sub)) {
+  if (is.null(edge_alpha)) {
+    p <- p +
+      ggplot2::scale_alpha_continuous(
+        range = edge_alpha_range,
+        limits = c(min_count, max_count),
+        guide = "none"
+      )
+  }
+
+  if (isTRUE(show_substitute_rings) && any(nodes$is_sub)) {
     p <- p +
       ggplot2::geom_point(
         data = nodes %>% dplyr::filter(.data$is_sub),
         ggplot2::aes(x = .data$x, y = .data$y),
         shape = 1,
-        size = if (compact) 3.6 else 4.2,
+        size = if (compact) 4.2 else 5.4,
         colour = team_color,
-        stroke = 1.1
+        stroke = 1.2
       )
   }
 
-  p +
+  p <- p +
     ggplot2::geom_point(
       data = nodes,
       ggplot2::aes(x = .data$x, y = .data$y, size = .data$total_passes),
-      fill = "white",
+      fill = team_color,
       colour = team_color,
       shape = 21,
       stroke = stroke_base
@@ -304,8 +339,9 @@ build_passing_network_plot <- function(network,
       ggplot2::aes(x = .data$x, y = .data$y, label = .data$player_label),
       family = SDC_FONTS$body,
       size = label_size,
-      colour = "#222222",
-      fontface = "bold"
+      colour = "#111111",
+      fontface = "bold",
+      vjust = -1.05
     ) +
     ggplot2::labs(x = NULL, y = NULL)
 
@@ -313,7 +349,7 @@ build_passing_network_plot <- function(network,
     p <- p +
       ggplot2::scale_x_continuous(limits = c(0, 120), expand = c(0, 0)) +
       ggplot2::scale_y_reverse(limits = c(80, 0), expand = c(0, 0)) +
-      ggplot2::coord_fixed(ratio = 80 / 120)
+      ggplot2::coord_fixed(ratio = 80 / 120, clip = "off")
   }
 
   p +
@@ -323,7 +359,7 @@ build_passing_network_plot <- function(network,
       axis.title = ggplot2::element_blank(),
       axis.ticks = ggplot2::element_blank(),
       panel.grid = ggplot2::element_blank(),
-      plot.margin = ggplot2::margin(2, 2, 2, 2)
+      plot.margin = ggplot2::margin(plot_margin, plot_margin, plot_margin, plot_margin)
     )
 }
 
@@ -553,13 +589,310 @@ build_half_passing_network_panel <- function(events_df,
     substitute_ids = sub_ids,
     compact = compact,
     pitch_style = pitch_style,
-    label_size = if (compact) 2.2 else 3.1,
-    max_edge_width = if (compact) 3.5 else 5.0
+    label_size = if (compact) 2.6 else 3.4,
+    max_edge_width = if (compact) 4.0 else 6.0,
+    edge_alpha = NULL,
+    show_substitute_rings = FALSE
   ) +
     ggplot2::theme(
       plot.background = ggplot2::element_rect(fill = "white", colour = NA),
-      plot.margin = ggplot2::margin(4, 4, 4, 4)
+      plot.margin = ggplot2::margin(2, 2, 2, 2)
     )
+}
+
+#' Full-match passing network panel (both halves combined)
+build_full_match_passing_network_panel <- function(events_df,
+                                                   team_name,
+                                                   team_color,
+                                                   match_id = NULL,
+                                                   min_passes = 4L,
+                                                   team_label = NULL,
+                                                   label_size = 3.8) {
+  net <- try_passing_network(
+    events_df,
+    team_name = team_name,
+    match_id = match_id,
+    half = NULL,
+    min_passes = min_passes
+  )
+  if (is.null(net)) {
+    net <- try_passing_network(
+      events_df,
+      team_name = team_name,
+      match_id = match_id,
+      half = NULL,
+      min_passes = max(2L, min_passes - 1L)
+    )
+  }
+  if (is.null(net)) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::annotate(
+          "text",
+          x = 0.5,
+          y = 0.5,
+          label = "Insufficient pass links",
+          family = SDC_FONTS$body,
+          size = 3.2,
+          colour = "#666666"
+        ) +
+        ggplot2::theme_void()
+    )
+  }
+
+  build_passing_network_plot(
+    net,
+    team_color = team_color,
+    substitute_ids = integer(0),
+    edge_alpha = NULL,
+    edge_alpha_range = c(0.03, 0.95),
+    label_size = label_size,
+    max_edge_width = 5.5,
+    show_substitute_rings = FALSE,
+    pitch_style = "sb"
+  ) +
+    ggplot2::labs(title = team_label) +
+    ggplot2::theme(
+      plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+      plot.title = ggplot2::element_text(
+        family = SDC_FONTS$body,
+        face = "bold",
+        size = 11,
+        colour = team_color,
+        hjust = 0.5,
+        margin = ggplot2::margin(b = 1, t = 0)
+      ),
+      plot.margin = ggplot2::margin(0, 0, 0, 0)
+    )
+}
+
+#' UC10c: full-match passing networks (one pitch per team, both halves combined)
+viz_match_passing_networks_combined <- function(events_df,
+                                                match_id = NULL,
+                                                meta = NULL,
+                                                home_team = NULL,
+                                                away_team = NULL,
+                                                home_color = SDC_PALETTE[["green"]],
+                                                away_color = SDC_PALETTE[["red"]],
+                                                min_passes_home = 4L,
+                                                min_passes_away = 4L,
+                                                title = "Passing networks",
+                                                subtitle = "Full match · darker links = more passes between players") {
+  if (!requireNamespace("patchwork", quietly = TRUE)) {
+    install.packages("patchwork", repos = "https://cloud.r-project.org")
+  }
+
+  if (is.null(home_team) || is.null(away_team)) {
+    if (is.null(meta) || nrow(meta) == 0) {
+      stop("Provide home_team/away_team or match meta.", call. = FALSE)
+    }
+    home_team <- meta$home_team[[1]]
+    away_team <- meta$away_team[[1]]
+  }
+
+  home_label <- meta$display_home[[1]] %||% home_team
+  away_label <- meta$display_away[[1]] %||% away_team
+
+  p_home <- build_full_match_passing_network_panel(
+    events_df,
+    team_name = home_team,
+    team_color = home_color,
+    match_id = match_id,
+    min_passes = min_passes_home,
+    team_label = home_label,
+    label_size = 3.9
+  )
+
+  p_away <- build_full_match_passing_network_panel(
+    events_df,
+    team_name = away_team,
+    team_color = away_color,
+    match_id = match_id,
+    min_passes = min_passes_away,
+    team_label = away_label,
+    label_size = 3.9
+  )
+
+  patchwork::wrap_plots(
+    list(p_home, p_away),
+    ncol = 2,
+    widths = c(0.5, 0.5)
+  ) +
+    patchwork::plot_annotation(
+      title = title,
+      subtitle = subtitle,
+      theme = theme_sdc(base_size = 10) +
+        ggplot2::theme(
+          plot.title = ggplot2::element_text(
+            family = SDC_FONTS$title,
+            face = "bold",
+            size = 12,
+            hjust = 0,
+            colour = "#111111"
+          ),
+          plot.subtitle = ggplot2::element_text(
+            family = SDC_FONTS$body,
+            size = 9,
+            hjust = 0,
+            colour = "#555555"
+          ),
+          plot.margin = ggplot2::margin(b = 0, l = 0, r = 0, t = 2)
+        )
+    )
+}
+
+#' Legend strip for half-by-half passing networks
+passing_network_halves_legend <- function(home_color,
+                                          away_color,
+                                          home_label,
+                                          away_label) {
+  link_x <- c(0.52, 0.58, 0.64, 0.72, 0.78, 0.84)
+  link_w <- c(0.35, 0.55, 0.85, 0.35, 0.55, 0.85)
+
+  p <- ggplot2::ggplot() +
+    ggplot2::annotate(
+      "text",
+      x = 0.02,
+      y = 0.72,
+      label = home_label,
+      hjust = 0,
+      family = SDC_FONTS$body,
+      size = 3.2,
+      fontface = "bold",
+      colour = home_color
+    ) +
+    ggplot2::annotate(
+      "point",
+      x = 0.015,
+      y = 0.72,
+      size = 2.8,
+      colour = home_color,
+      fill = home_color,
+      shape = 21,
+      stroke = 0.8
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.02,
+      y = 0.38,
+      label = away_label,
+      hjust = 0,
+      family = SDC_FONTS$body,
+      size = 3.2,
+      fontface = "bold",
+      colour = away_color
+    ) +
+    ggplot2::annotate(
+      "point",
+      x = 0.015,
+      y = 0.38,
+      size = 2.8,
+      colour = away_color,
+      fill = away_color,
+      shape = 21,
+      stroke = 0.8
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.50,
+      y = 0.88,
+      label = "Link strength",
+      family = SDC_FONTS$body,
+      size = 2.8,
+      fontface = "bold",
+      colour = "#333333"
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.58,
+      y = 0.88,
+      label = "By half",
+      family = SDC_FONTS$body,
+      size = 2.8,
+      fontface = "bold",
+      colour = "#333333"
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.86,
+      y = 0.88,
+      label = "Player status",
+      family = SDC_FONTS$body,
+      size = 2.8,
+      fontface = "bold",
+      colour = "#333333"
+    )
+
+  for (i in seq_along(link_x[1:3])) {
+    p <- p +
+      ggplot2::annotate(
+        "segment",
+        x = link_x[i],
+        xend = link_x[i] + 0.04,
+        y = 0.62,
+        yend = 0.62,
+        colour = home_color,
+        linewidth = link_w[i],
+        lineend = "round"
+      )
+  }
+  for (i in seq_along(link_x[4:6])) {
+    idx <- i + 3
+    p <- p +
+      ggplot2::annotate(
+        "segment",
+        x = link_x[idx],
+        xend = link_x[idx] + 0.04,
+        y = 0.28,
+        yend = 0.28,
+        colour = away_color,
+        linewidth = link_w[idx],
+        lineend = "round"
+      )
+  }
+
+  p +
+    ggplot2::annotate(
+      "point",
+      x = 0.84,
+      y = 0.62,
+      size = 2.8,
+      colour = home_color,
+      fill = home_color,
+      shape = 21
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.88,
+      y = 0.62,
+      label = "Starter",
+      hjust = 0,
+      family = SDC_FONTS$body,
+      size = 2.6,
+      colour = "#333333"
+    ) +
+    ggplot2::annotate(
+      "point",
+      x = 0.84,
+      y = 0.28,
+      size = 3.2,
+      colour = home_color,
+      shape = 1,
+      stroke = 1
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.88,
+      y = 0.28,
+      label = "Substitute",
+      hjust = 0,
+      family = SDC_FONTS$body,
+      size = 2.6,
+      colour = "#333333"
+    ) +
+    ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(0, 4, 0, 4))
 }
 
 #' UC10b: 2x2 half-by-half passing networks (teams x halves)
@@ -574,8 +907,8 @@ viz_match_passing_networks_halves <- function(events_df,
                                               min_passes_home = 3L,
                                               min_passes_away = 3L,
                                               min_passes_away_second = 2L,
-                                              title = "How they connected the passes",
-                                              subtitle = "Completed-pass networks by half · line thickness = pass volume") {
+                                              title = "Passing behaviour by half",
+                                              subtitle = "Larger nodes = greater completed-pass involvement") {
   if (!requireNamespace("patchwork", quietly = TRUE)) {
     install.packages("patchwork", repos = "https://cloud.r-project.org")
   }
@@ -616,46 +949,41 @@ viz_match_passing_networks_halves <- function(events_df,
         "text",
         x = 0.5,
         y = 0.5,
-        label = label,
+        label = toupper(label),
         family = SDC_FONTS$body,
         fontface = "bold",
-        size = 3.8,
-        colour = "#333333"
+        size = 4.2,
+        colour = SDC_PALETTE[["blue"]]
       ) +
       ggplot2::theme_void()
   }
 
-  row_label <- function(label, colour) {
-    ggplot2::ggplot() +
-      ggplot2::annotate(
-        "text",
-        x = 0.5,
-        y = 0.5,
-        label = label,
-        angle = 90,
-        family = SDC_FONTS$body,
-        fontface = "bold",
-        size = 3.6,
-        colour = colour
-      ) +
-      ggplot2::theme_void()
-  }
+  legend <- passing_network_halves_legend(
+    home_color = home_color,
+    away_color = away_color,
+    home_label = home_label,
+    away_label = away_label
+  )
+
+  top_row <- patchwork::wrap_plots(
+    list(p_home_1, p_home_2),
+    ncol = 2
+  )
+
+  mid_row <- patchwork::wrap_plots(
+    list(col_header("First half"), col_header("Second half")),
+    ncol = 2
+  )
+
+  bottom_row <- patchwork::wrap_plots(
+    list(p_away_1, p_away_2),
+    ncol = 2
+  )
 
   patchwork::wrap_plots(
-    list(
-      ggplot2::ggplot() + ggplot2::theme_void(),
-      col_header("First half"),
-      col_header("Second half"),
-      row_label(home_label, home_color),
-      p_home_1,
-      p_home_2,
-      row_label(away_label, away_color),
-      p_away_1,
-      p_away_2
-    ),
-    ncol = 3,
-    widths = c(0.06, 0.47, 0.47),
-    heights = c(0.04, 0.48, 0.48)
+    list(legend, top_row, mid_row, bottom_row),
+    ncol = 1,
+    heights = c(0.09, 0.43, 0.05, 0.43)
   ) +
     patchwork::plot_annotation(
       title = title,
