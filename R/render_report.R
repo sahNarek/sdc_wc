@@ -67,6 +67,11 @@ match_report_defaults <- function(match_id) {
         shot_map_goal_net_subtitle = "Shots trajectories and attacking contribution · FIFA World Cup 2026"
       )
     ),
+    "4036772" = list(
+      featured_icon_player = "Riyad Mahrez",
+      home_color = "#006233",
+      away_color = "#ED2939"
+    ),
     list()
   )
 }

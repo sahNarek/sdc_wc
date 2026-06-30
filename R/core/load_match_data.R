@@ -18,7 +18,7 @@ provider_data_available <- function(match_id,
   switch(
     provider,
     statsbomb = !is.null(
-      resolve_match_file(provider_match_id, "events.json", data_dir = data_dir)
+      resolve_match_file(provider_match_id, "events.json", data_dir = NULL, root = root)
     ),
     wyscout = wyscout_match_data_available(provider_match_id, data_dir = data_dir),
     FALSE

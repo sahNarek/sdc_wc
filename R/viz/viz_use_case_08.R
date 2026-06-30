@@ -791,6 +791,15 @@ plot_shot_map_summary_row <- function(stats,
     return(left_plot)
   }
 
+  rose_cols <- vapply(
+    CF_ATTACKING_ROSE_METRICS,
+    function(spec) spec$column,
+    character(1)
+  )
+  if (!all(rose_cols %in% names(player_match_stats_df))) {
+    return(left_plot)
+  }
+
   rose_metrics <- compute_cf_attacking_rose_metrics(
     player_match_stats_df,
     player_id = player_id

@@ -24,12 +24,24 @@ list_available_match_ids <- function(provider = "statsbomb",
   sort(unique(ids[!is.na(ids)]))
 }
 
+#' StatsBomb raw root that contains a match's event data
+resolve_statsbomb_data_dir <- function(match_id, root = get_project_root()) {
+  match_id <- as.integer(match_id)
+  for (dir in statsbomb_raw_dirs(root)) {
+    if (!is.null(resolve_match_file(match_id, "events.json", data_dir = dir))) {
+      return(dir)
+    }
+  }
+  NULL
+}
+
 #' Resolve highest version folder for a match file
 resolve_match_file <- function(match_id,
                                file_name,
-                               data_dir = NULL) {
+                               data_dir = NULL,
+                               root = get_project_root()) {
   data_dirs <- if (is.null(data_dir)) {
-    statsbomb_raw_dirs()
+    statsbomb_raw_dirs(root)
   } else {
     data_dir
   }
@@ -61,20 +73,42 @@ resolve_match_file <- function(match_id,
 #' Read a match JSON file (events, lineups, stats, etc.)
 read_match_json <- function(match_id,
                             file_name,
-                            data_dir = get_provider_raw_dir("statsbomb")) {
-  path <- resolve_match_file(match_id, file_name, data_dir = data_dir)
+                            data_dir = NULL,
+                            root = get_project_root()) {
+  if (is.null(data_dir)) {
+    data_dir <- resolve_statsbomb_data_dir(match_id, root = root)
+  }
+  path <- resolve_match_file(match_id, file_name, data_dir = data_dir, root = root)
   if (is.null(path)) {
     stop(
       "Missing ", file_name, " for match ", match_id,
-      " under ", data_dir, call. = FALSE
+      if (!is.null(data_dir)) paste0(" under ", data_dir) else "",
+      call. = FALSE
     )
   }
 
   jsonlite::fromJSON(path, simplifyVector = FALSE)
 }
 
-match_data_available <- function(match_id, data_dir = get_provider_raw_dir("statsbomb")) {
-  !is.null(resolve_match_file(match_id, "events.json", data_dir = data_dir))
+#' Read a match JSON file when present; return empty list if missing
+read_match_json_optional <- function(match_id,
+                                   file_name,
+                                   data_dir = NULL,
+                                   root = get_project_root()) {
+  if (is.null(data_dir)) {
+    data_dir <- resolve_statsbomb_data_dir(match_id, root = root)
+  }
+  path <- resolve_match_file(match_id, file_name, data_dir = data_dir, root = root)
+  if (is.null(path)) {
+    return(list())
+  }
+  jsonlite::fromJSON(path, simplifyVector = FALSE)
+}
+
+match_data_available <- function(match_id,
+                                 data_dir = NULL,
+                                 root = get_project_root()) {
+  !is.null(resolve_match_file(match_id, "events.json", data_dir = data_dir, root = root))
 }
 
 read_game_ids <- function(root = get_project_root()) {

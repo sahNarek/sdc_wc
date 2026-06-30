@@ -58,8 +58,10 @@ statsbomb_raw_dirs <- function(root = get_project_root()) {
   }
 
   fallback <- file.path(root, "data", "raw", "statsbomb")
-  if (dir.exists(file.path(fallback, "matches"))) {
-    dirs <- c(dirs, fallback)
+  for (candidate in c(file.path(fallback, "raw"), fallback)) {
+    if (dir.exists(file.path(candidate, "matches"))) {
+      dirs <- c(dirs, candidate)
+    }
   }
 
   unique(dirs)
