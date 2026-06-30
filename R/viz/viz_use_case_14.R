@@ -351,6 +351,22 @@ estimate_team_quality_stats <- function(events_df, meta, match_id) {
     recoveries_all <- data %>%
       dplyr::filter(.data$`type.name` == "Ball Recovery", .data$`team.name` == team) %>%
       nrow()
+    carries <- data %>%
+      dplyr::filter(.data$`type.name` == "Carry", .data$`team.name` == team) %>%
+      nrow()
+    interceptions <- data %>%
+      dplyr::filter(.data$`type.name` == "Interception", .data$`team.name` == team) %>%
+      nrow()
+    tackles <- data %>%
+      dplyr::filter(
+        .data$`type.name` == "Duel",
+        .data$`duel.type.name` == "Tackle",
+        .data$`team.name` == team
+      ) %>%
+      nrow()
+    fouls_committed <- data %>%
+      dplyr::filter(.data$`type.name` == "Foul Committed", .data$`team.name` == team) %>%
+      nrow()
 
     tibble::tibble(
       match_id = as.integer(match_id),
@@ -371,8 +387,12 @@ estimate_team_quality_stats <- function(events_df, meta, match_id) {
       } else {
         NA_real_
       },
+      team_match_carries = carries,
       team_match_fhalf_pressures = fhalf_pressures,
       team_match_pressure_regains = recoveries_all,
+      team_match_interceptions = interceptions,
+      team_match_tackles = tackles,
+      team_match_fouls_committed = fouls_committed,
       team_match_deep_progressions = nrow(deep_prog),
       team_match_passes_inside_box = nrow(box_entries),
       team_match_np_xg = sum(shots$`shot.statsbomb_xg`, na.rm = TRUE),
@@ -535,6 +555,28 @@ compute_match_share_metrics <- function(team_match_stats_df,
   tms <- team_match_stats_df
   pms <- player_match_stats_df
 
+  event_derived_fields <- c(
+    "team_match_passes",
+    "team_match_carries",
+    "team_match_interceptions",
+    "team_match_tackles",
+    "team_match_fouls_committed"
+  )
+  missing_fields <- setdiff(event_derived_fields, names(tms))
+  if (length(missing_fields) > 0) {
+    estimated <- estimate_team_quality_stats(
+      events_df,
+      meta,
+      tms$match_id[[1]] %||% meta$match_id[[1]]
+    )
+    tms <- tms %>%
+      dplyr::left_join(
+        estimated %>%
+          dplyr::select("team_name", dplyr::any_of(missing_fields)),
+        by = "team_name"
+      )
+  }
+
   row_value <- function(field, label, section_key, type = "count") {
     home_val <- tms %>%
       dplyr::filter(.data$team_name == home) %>%
@@ -634,6 +676,8 @@ compute_match_share_metrics <- function(team_match_stats_df,
       home_label = scales::percent(safe_home, accuracy = 1),
       away_label = scales::percent(safe_away, accuracy = 1)
     ),
+    row_value("team_match_passes", "Pass attempts", "circulation", "count"),
+    row_value("team_match_carries", "Carries", "circulation", "count"),
     row_value("team_match_fhalf_pressures", "Opponent-half pressures", "pressing", "count"),
     row_value("team_match_pressure_regains", "Pressure regains", "pressing", "count"),
     tibble::tibble(
@@ -645,9 +689,32 @@ compute_match_share_metrics <- function(team_match_stats_df,
       home_label = format(high_home, big.mark = ","),
       away_label = format(high_away, big.mark = ",")
     ),
+    row_value("team_match_interceptions", "Interceptions", "pressing", "count"),
+    row_value("team_match_tackles", "Tackles", "pressing", "count"),
+    row_value("team_match_fouls_committed", "Fouls committed", "pressing", "count"),
     row_value("team_match_deep_progressions", "Deep progressions", "threat", "count"),
     row_value("team_match_passes_inside_box", "Box entries", "threat", "count"),
     row_value("team_match_np_xg", "Non-penalty xG", "threat", "share"),
+    {
+      goals_home <- tms %>%
+        dplyr::filter(.data$team_name == home) %>%
+        dplyr::pull(.data$team_match_goals)
+      goals_away <- tms %>%
+        dplyr::filter(.data$team_name == away) %>%
+        dplyr::pull(.data$team_match_goals)
+      goals_home <- goals_home[[1]] %||% meta$home_score[[1]]
+      goals_away <- goals_away[[1]] %||% meta$away_score[[1]]
+      goals_total <- goals_home + goals_away
+      tibble::tibble(
+        section_key = "threat",
+        section = SHARE_SECTION_LABELS[["threat"]],
+        metric = "Goals",
+        home_share = if (goals_total > 0) goals_home / goals_total else 0.5,
+        away_share = if (goals_total > 0) goals_away / goals_total else 0.5,
+        home_label = format(goals_home, big.mark = ","),
+        away_label = format(goals_away, big.mark = ",")
+      )
+    },
     tibble::tibble(
       section_key = "threat",
       section = SHARE_SECTION_LABELS[["threat"]],
@@ -842,6 +909,230 @@ viz_ppda_interval_line <- function(ppda_df,
   }
 
   p
+}
+
+#' Compact colour-scale legend for game-quality team heatmaps
+plot_game_quality_heatmap_legend <- function(home_colors,
+                                             away_colors,
+                                             limits = c(0, 0.2)) {
+  title_style <- legend_title_ggpar()
+  label_style <- legend_label_ggpar()
+  breaks <- c(0, 0.05, 0.1, 0.15, 0.2)
+  breaks <- breaks[breaks <= limits[[2]] + 1e-9]
+
+  cx <- 5
+  bar_half <- 4.25
+  bar_height <- 0.15
+  top_bar_y <- 0.56
+  bottom_bar_y <- 0.34
+  tick_y <- 0.12
+
+  p <- ggplot2::ggplot() +
+    ggplot2::coord_cartesian(xlim = c(0, 10), ylim = c(0.04, 0.98), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(10, 6, 2, 6))
+
+  p <- p +
+    ggplot2::annotate(
+      "text",
+      x = cx,
+      y = 0.80,
+      label = "Share of attacking actions",
+      family = title_style$family,
+      size = title_style$size * 0.82,
+      colour = title_style$colour,
+      fontface = title_style$fontface,
+      vjust = 0
+    )
+
+  p <- heatmap_share_legend_bar(
+    p,
+    cx = cx,
+    heat_colors = home_colors,
+    marker_y = top_bar_y,
+    bar_half = bar_half,
+    bar_height = bar_height
+  )
+  p <- heatmap_share_legend_bar(
+    p,
+    cx = cx,
+    heat_colors = away_colors,
+    marker_y = bottom_bar_y,
+    bar_half = bar_half,
+    bar_height = bar_height
+  )
+
+  tick_df <- tibble::tibble(
+    x = cx - bar_half + (breaks - limits[[1]]) / diff(limits) * (2 * bar_half),
+    label = scales::percent(breaks, accuracy = 1)
+  )
+
+  p +
+    ggplot2::geom_text(
+      data = tick_df,
+      ggplot2::aes(x = .data$x, y = tick_y, label = .data$label),
+      family = label_style$family,
+      size = label_style$size * 0.86,
+      colour = label_style$colour,
+      fontface = label_style$fontface,
+      vjust = 1
+    )
+}
+
+#' Compact team attacking heatmap pitch for the game-quality grid
+prepare_game_quality_team_heatmap <- function(events_df,
+                                              team_name,
+                                              heat_color,
+                                              match_id = NULL,
+                                              n_x_bins = 5,
+                                              n_y_bins = 4,
+                                              legend_limits = NULL,
+                                              show_direction_arrow = TRUE) {
+  heatmap_df <- compute_team_attacking_heatmap(
+    events_df,
+    team_name = team_name,
+    match_id = match_id,
+    n_x_bins = n_x_bins,
+    n_y_bins = n_y_bins,
+    normalize_direction = TRUE
+  )
+
+  heat_colors <- palette_binned_heatmap(color = heat_color, n = 9)
+  legend_max <- max(heatmap_df$share_of_actions, na.rm = TRUE)
+  default_limit <- min(0.25, max(0.12, ceiling(legend_max * 100 / 5) * 5 / 100))
+  fill_limits <- legend_limits %||% c(0, default_limit)
+
+  pitch_plot <- ggplot(heatmap_df) +
+    geom_rect(
+      aes(
+        xmin = .data$xmin,
+        xmax = .data$xmax,
+        ymin = .data$ymin,
+        ymax = .data$ymax,
+        fill = .data$share_of_actions
+      ),
+      colour = NA,
+      alpha = 0.92
+    ) +
+    draw_pitch_markings(colour = "black", linewidth = 0.4) +
+    draw_pitch_outer_border(colour = "black", linewidth = 0.75)
+
+  if (isTRUE(show_direction_arrow)) {
+    pitch_plot <- pitch_plot +
+      geom_segment(
+        data = tibble::tibble(x = 16, xend = 104, y = 83.5, yend = 83.5),
+        aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
+        arrow = arrow(
+          length = unit(0.08, "inches"),
+          ends = "last",
+          type = "closed"
+        ),
+        linewidth = 0.35,
+        colour = "black",
+        inherit.aes = FALSE
+      )
+  }
+
+  pitch_plot <- pitch_plot +
+    scale_fill_gradientn(
+      colours = heat_colors,
+      limits = fill_limits,
+      oob = scales::squish,
+      guide = "none"
+    ) +
+    scale_x_continuous(limits = c(0, 120), expand = c(0, 0)) +
+    scale_y_reverse(limits = c(86, 0), expand = c(0, 0)) +
+    coord_fixed(ratio = 80 / 120) +
+    labs(x = NULL, y = NULL) +
+    theme_sdc(base_size = 9) +
+    theme(
+      axis.text = element_blank(),
+      axis.title = element_blank(),
+      panel.grid = element_blank(),
+      legend.position = "none",
+      plot.margin = margin(t = 0, r = 0, b = 0, l = 6)
+    )
+
+  list(
+    plot = pitch_plot,
+    heat_colors = heat_colors,
+    legend_limits = fill_limits
+  )
+}
+
+#' Panel B — stacked team attacking-action heatmaps
+viz_game_quality_attacking_heatmaps <- function(events_df,
+                                                meta,
+                                                match_id = NULL,
+                                                home_color = SDC_PALETTE[["green"]],
+                                                away_color = SDC_PALETTE[["red"]],
+                                                title = "Where attacks were built",
+                                                subtitle = paste(
+                                                  "Darker zones = larger share of that team's on-ball",
+                                                  "attacking actions (0–20% of total per team)"
+                                                )) {
+  if (!requireNamespace("patchwork", quietly = TRUE)) {
+    install.packages("patchwork", repos = "https://cloud.r-project.org")
+  }
+
+  legend_limits <- c(0, 0.2)
+
+  home_prep <- prepare_game_quality_team_heatmap(
+    events_df,
+    team_name = meta$home_team[[1]],
+    heat_color = home_color,
+    match_id = match_id,
+    legend_limits = legend_limits
+  )
+  away_prep <- prepare_game_quality_team_heatmap(
+    events_df,
+    team_name = meta$away_team[[1]],
+    heat_color = away_color,
+    match_id = match_id,
+    legend_limits = legend_limits,
+    show_direction_arrow = FALSE
+  )
+  away_prep$plot <- away_prep$plot +
+    ggplot2::theme(plot.margin = ggplot2::margin(t = 0, r = 0, b = 6, l = 6))
+
+  legend_plot <- plot_game_quality_heatmap_legend(
+    home_colors = home_prep$heat_colors,
+    away_colors = away_prep$heat_colors,
+    limits = legend_limits
+  )
+
+  patchwork::wrap_plots(
+    list(home_prep$plot, away_prep$plot, legend_plot),
+    ncol = 1,
+    heights = c(1, 1, 0.22)
+  ) +
+    patchwork::plot_annotation(
+      title = title,
+      subtitle = subtitle,
+      caption = "Includes passes, carries, ball receipts, dribbles and shots. Arrow = direction of attack.",
+      theme = theme(
+        plot.title = element_text(
+          family = SDC_FONTS$body,
+          face = "bold",
+          size = 13,
+          hjust = 0,
+          colour = "#111111"
+        ),
+        plot.subtitle = element_text(
+          family = SDC_FONTS$body,
+          size = 10,
+          hjust = 0,
+          colour = "#555555"
+        ),
+        plot.caption = element_text(
+          family = SDC_FONTS$body,
+          size = 7.5,
+          hjust = 0,
+          colour = "#666666"
+        ),
+        plot.margin = margin(t = 4, r = 4, b = 2, l = 0)
+      )
+    )
 }
 
 #' Panel B — goals vs non-penalty xG comparison
@@ -1099,7 +1390,6 @@ viz_game_quality_grid <- function(events_df,
 
   ppda_df <- compute_ppda_by_interval(events_df, meta)
 
-  goals_xg <- compute_goals_vs_xg_summary(tms, meta)
   share_df <- compute_match_share_metrics(tms, pms, events_df, meta)
 
   panel_a <- viz_ppda_interval_line(
@@ -1110,7 +1400,13 @@ viz_game_quality_grid <- function(events_df,
     away_color = away_color,
     root = root
   )
-  panel_b <- viz_goals_vs_xg_card(goals_xg)
+  panel_b <- viz_game_quality_attacking_heatmaps(
+    events_df,
+    meta = meta,
+    match_id = match_id,
+    home_color = home_color,
+    away_color = away_color
+  )
   panel_c <- viz_match_share_sections_row(
     share_df,
     meta = meta,
@@ -1118,15 +1414,11 @@ viz_game_quality_grid <- function(events_df,
     away_color = away_color
   )
 
-  top_row <- patchwork::wrap_plots(
-    list(panel_a, panel_b),
-    ncol = 2,
-    widths = c(1.15, 0.85)
-  )
-
   grid_body <- patchwork::wrap_plots(
-    list(top_row, panel_c),
-    ncol = 1,
+    A = panel_a,
+    B = panel_b,
+    C = panel_c,
+    design = "AAB\nCCC",
     heights = c(0.58, 0.42)
   )
 

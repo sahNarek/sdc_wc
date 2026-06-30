@@ -342,6 +342,108 @@ filter_player_pitch_locations <- function(events_df,
     )
 }
 
+#' Team action locations on a normalized full pitch
+filter_team_pitch_locations <- function(events_df,
+                                        team_name,
+                                        match_id = NULL,
+                                        action_types = PLAYER_ATTACKING_TYPES,
+                                        normalize_direction = TRUE) {
+  data <- events_df
+  if (!is.null(match_id)) {
+    data <- data %>% dplyr::filter(.data$match_id == !!match_id)
+  }
+
+  data <- data %>% dplyr::filter(.data$team.name == .env$team_name)
+
+  if (nrow(data) == 0) {
+    stop("No events found for team: ", team_name, call. = FALSE)
+  }
+
+  actions <- data %>%
+    dplyr::filter(
+      .data$type.name %in% action_types,
+      !is.na(.data$location.x),
+      !is.na(.data$location.y)
+    )
+
+  if (nrow(actions) == 0) {
+    stop("No located attacking actions found for team: ", team_name, call. = FALSE)
+  }
+
+  if (!normalize_direction) {
+    return(actions %>% dplyr::mutate(pitch_x = .data$location.x, pitch_y = .data$location.y))
+  }
+
+  direction <- infer_team_attacking_high_x(events_df)
+
+  actions %>%
+    dplyr::left_join(direction, by = c("team.name", "period")) %>%
+    dplyr::mutate(
+      attacks_high_x = dplyr::coalesce(.data$attacks_high_x, TRUE),
+      norm = purrr::pmap(
+        list(.data$location.x, .data$location.y, .data$attacks_high_x),
+        normalize_opponent_half_coords
+      ),
+      pitch_x = purrr::map_dbl(.data$norm, "x"),
+      pitch_y = purrr::map_dbl(.data$norm, "y")
+    )
+}
+
+#' Bin a team's attacking actions into a pitch grid
+compute_team_attacking_heatmap <- function(events_df,
+                                           team_name,
+                                           match_id = NULL,
+                                           n_x_bins = 6,
+                                           n_y_bins = 5,
+                                           action_types = PLAYER_ATTACKING_TYPES,
+                                           normalize_direction = TRUE) {
+  actions <- filter_team_pitch_locations(
+    events_df,
+    team_name = team_name,
+    match_id = match_id,
+    action_types = action_types,
+    normalize_direction = normalize_direction
+  )
+
+  x_breaks <- seq(0, 120, length.out = n_x_bins + 1)
+  y_breaks <- seq(0, 80, length.out = n_y_bins + 1)
+  total_actions <- nrow(actions)
+
+  actions %>%
+    dplyr::mutate(
+      pitch_x = pmin(pmax(.data$pitch_x, 0), 120),
+      pitch_y = pmin(pmax(.data$pitch_y, 0), 80),
+      x_bin = as.integer(cut(
+        .data$pitch_x,
+        breaks = x_breaks,
+        include.lowest = TRUE,
+        labels = FALSE
+      )),
+      y_bin = as.integer(cut(
+        .data$pitch_y,
+        breaks = y_breaks,
+        include.lowest = TRUE,
+        labels = FALSE
+      ))
+    ) %>%
+    dplyr::filter(!is.na(.data$x_bin), !is.na(.data$y_bin)) %>%
+    dplyr::count(.data$x_bin, .data$y_bin, name = "zone_actions") %>%
+    tidyr::complete(
+      x_bin = seq_len(n_x_bins),
+      y_bin = seq_len(n_y_bins),
+      fill = list(zone_actions = 0L)
+    ) %>%
+    dplyr::mutate(
+      share_of_actions = .data$zone_actions / total_actions,
+      xmin = x_breaks[.data$x_bin],
+      xmax = x_breaks[.data$x_bin + 1],
+      ymin = y_breaks[.data$y_bin],
+      ymax = y_breaks[.data$y_bin + 1],
+      team_name = team_name,
+      total_actions = total_actions
+    )
+}
+
 #' Player pass locations for a horizontal KDE heatmap
 filter_player_pass_locations <- function(events_df,
                                          player_id = NULL,
