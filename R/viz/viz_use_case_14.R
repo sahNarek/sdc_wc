@@ -1386,7 +1386,6 @@ viz_game_quality_grid <- function(events_df,
 
   tms <- quality$team_match_stats
   pms <- quality$player_match_stats
-  stats_source <- quality$stats_source
 
   ppda_df <- compute_ppda_by_interval(events_df, meta)
 
@@ -1422,22 +1421,10 @@ viz_game_quality_grid <- function(events_df,
     heights = c(0.58, 0.42)
   )
 
-  notes_caption <- paste(
-    "Notes: Safe pass share = backward or short lateral passes.",
-    "High recoveries = ball recoveries in the opponent's half.",
-    "Key passes = passes leading directly to a shot."
-  )
-  caption <- if (stats_source == "estimated") {
-    paste(notes_caption, "Some match aggregates approximated from event data.", sep = " ")
-  } else {
-    notes_caption
-  }
-
   grid_body +
     patchwork::plot_annotation(
       title = title,
       subtitle = subtitle,
-      caption = caption,
       theme = theme_sdc_grid()
     )
 }
