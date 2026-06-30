@@ -333,6 +333,100 @@ colored_ball_icon_path <- function(hex_color, root = get_project_root()) {
   out
 }
 
+#' Path to the star SVG asset (central player marker in passing networks)
+star_icon_svg_path <- function(root = get_project_root()) {
+  file.path(root, "assets", "star.svg")
+}
+
+#' Ensure star.svg is rasterised to PNG (refreshes when SVG is newer)
+ensure_star_icon <- function(root = get_project_root()) {
+  icons_dir <- get_icons_dir(root)
+  png_path <- file.path(icons_dir, "star_outline.png")
+  svg_path <- star_icon_svg_path(root)
+  if (!file.exists(svg_path)) {
+    stop("Star icon not found: ", svg_path, call. = FALSE)
+  }
+
+  needs_refresh <- !file.exists(png_path) ||
+    file.info(svg_path)$mtime > file.info(png_path)$mtime
+
+  if (!isTRUE(needs_refresh)) {
+    return(invisible(png_path))
+  }
+
+  if (!requireNamespace("rsvg", quietly = TRUE)) {
+    install.packages("rsvg", repos = "https://cloud.r-project.org")
+  }
+
+  rsvg::rsvg_png(svg_path, png_path, width = 240, height = 240)
+  invisible(png_path)
+}
+
+#' Path to the rasterised star icon
+star_icon_path <- function(root = get_project_root()) {
+  ensure_star_icon(root)
+  file.path(get_icons_dir(root), "star_outline.png")
+}
+
+#' Cached star icon tinted with a solid colour
+colored_star_icon_path <- function(hex_color, root = get_project_root()) {
+  key <- paste("star", hex_color, sep = "|")
+  if (exists(key, envir = ICON_COLOR_CACHE, inherits = FALSE)) {
+    return(get(key, envir = ICON_COLOR_CACHE))
+  }
+
+  colored <- colorize_body_part_icon(star_icon_path(root), hex_color)
+  cache_dir <- file.path(tempdir(), "sdc_shot_icons")
+  dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+  out <- file.path(
+    cache_dir,
+    paste0(gsub("[^A-Za-z0-9]+", "_", key), ".png")
+  )
+  magick::image_write(magick::image_convert(colored, "png32"), out)
+  assign(key, out, envir = ICON_COLOR_CACHE)
+  out
+}
+
+#' Five-point star polygon coordinates (centre, outer/inner radius)
+star_polygon_coords <- function(cx,
+                                cy,
+                                r_outer,
+                                r_inner,
+                                n_points = 5L) {
+  angles <- seq(-pi / 2, 3 * pi / 2, length.out = 2L * n_points + 1L)[-(2L * n_points + 1L)]
+  radii <- rep(c(r_outer, r_inner), each = n_points)
+  cbind(
+    x = cx + radii * cos(angles),
+    y = cy + radii * sin(angles)
+  )
+}
+
+#' Star marker for the most-involved player: team-coloured outline on transparent PNG
+central_player_star_icon_path <- function(hex_color, root = get_project_root()) {
+  key <- paste("star_central", basename(star_icon_svg_path(root)), "v4", hex_color, sep = "|")
+  if (exists(key, envir = ICON_COLOR_CACHE, inherits = FALSE)) {
+    return(get(key, envir = ICON_COLOR_CACHE))
+  }
+
+  if (!requireNamespace("magick", quietly = TRUE)) {
+    install.packages("magick", repos = "https://cloud.r-project.org")
+  }
+
+  ensure_star_icon(root)
+  colored_outline <- colorize_body_part_icon(star_icon_path(root), hex_color)
+  result <- magick::image_convert(colored_outline, "png32")
+
+  cache_dir <- file.path(tempdir(), "sdc_shot_icons")
+  dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+  out <- file.path(
+    cache_dir,
+    paste0(gsub("[^A-Za-z0-9]+", "_", key), ".png")
+  )
+  magick::image_write(result, out)
+  assign(key, out, envir = ICON_COLOR_CACHE)
+  out
+}
+
 #' Goal-net marker colour from shot outcome (green = goal, orange = saved, purple = blocked)
 goal_net_marker_color <- function(outcome) {
   if (identical(outcome, "Goal")) {

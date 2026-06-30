@@ -203,6 +203,222 @@ compute_passing_network <- function(events_df,
   list(nodes = nodes, edges = edges)
 }
 
+#' Push apart nodes that share or nearly share the same average pitch position
+resolve_passing_network_node_positions <- function(nodes,
+                                                   min_dist = 6.8,
+                                                   max_iter = 80L) {
+  if (nrow(nodes) <= 1L) {
+    return(nodes %>% dplyr::mutate(display_x = .data$x, display_y = .data$y))
+  }
+
+  nodes <- nodes %>%
+    dplyr::mutate(
+      display_x = .data$x,
+      display_y = .data$y
+    )
+  n <- nrow(nodes)
+
+  for (iter in seq_len(max_iter)) {
+    moved <- FALSE
+    for (i in seq_len(n - 1L)) {
+      for (j in (i + 1L):n) {
+        dx <- nodes$display_x[j] - nodes$display_x[i]
+        dy <- nodes$display_y[j] - nodes$display_y[i]
+        dist <- sqrt(dx^2 + dy^2)
+        if (dist >= min_dist) {
+          next
+        }
+
+        if (dist < 0.05) {
+          angle <- ((i * 7L + j * 13L) %% 360L) * pi / 180
+          dx <- cos(angle)
+          dy <- sin(angle)
+          dist <- 0.05
+        }
+
+        overlap <- min_dist - dist
+        shift <- overlap / dist
+        weight_i <- 0.5
+        if (isTRUE(nodes$is_sub[i]) && !isTRUE(nodes$is_sub[j])) {
+          weight_i <- 0.72
+        } else if (isTRUE(nodes$is_sub[j]) && !isTRUE(nodes$is_sub[i])) {
+          weight_i <- 0.28
+        } else if (isTRUE(nodes$is_sub[i]) && isTRUE(nodes$is_sub[j])) {
+          weight_i <- if (nodes$total_passes[i] <= nodes$total_passes[j]) 0.6 else 0.4
+        }
+
+        nodes$display_x[i] <- nodes$display_x[i] - shift * dx * weight_i
+        nodes$display_y[i] <- nodes$display_y[i] - shift * dy * weight_i
+        nodes$display_x[j] <- nodes$display_x[j] + shift * dx * (1 - weight_i)
+        nodes$display_y[j] <- nodes$display_y[j] + shift * dy * (1 - weight_i)
+        moved <- TRUE
+      }
+    }
+
+    nodes <- nodes %>%
+      dplyr::mutate(
+        display_x = pmin(pmax(.data$display_x, 4), 116),
+        display_y = pmin(pmax(.data$display_y, 4), 76)
+      )
+    if (!moved) {
+      break
+    }
+  }
+
+  nodes %>%
+    dplyr::mutate(
+      x = .data$display_x,
+      y = .data$display_y
+    )
+}
+
+#' Place player labels away from nodes and resolve label-on-label overlap
+compute_passing_network_label_positions <- function(nodes,
+                                                    pitch_cx = 60,
+                                                    pitch_cy = 40,
+                                                    base_dist = 5.8,
+                                                    min_label_sep = 7.5,
+                                                    min_node_clearance = 5.0,
+                                                    max_iter = 100L) {
+  if (nrow(nodes) == 0L) {
+    return(nodes)
+  }
+
+  label_x <- numeric(nrow(nodes))
+  label_y <- numeric(nrow(nodes))
+
+  for (i in seq_len(nrow(nodes))) {
+    dx <- nodes$x[i] - pitch_cx
+    dy <- nodes$y[i] - pitch_cy
+    dist <- sqrt(dx^2 + dy^2)
+    if (dist < 1) {
+      angle <- 2 * pi * i / nrow(nodes) - pi / 2
+      dx <- cos(angle)
+      dy <- sin(angle)
+      dist <- 1
+    }
+    label_x[i] <- nodes$x[i] + (dx / dist) * base_dist * 0.85
+    label_y[i] <- nodes$y[i] + (dy / dist) * base_dist * 0.68 - 2.6
+  }
+
+  repel_labels <- function(label_x, label_y, min_sep, iterations) {
+    n <- length(label_x)
+    for (iter in seq_len(iterations)) {
+      moved <- FALSE
+      for (i in seq_len(n - 1L)) {
+        for (j in (i + 1L):n) {
+          dx <- label_x[j] - label_x[i]
+          dy <- label_y[j] - label_y[i]
+          dist <- sqrt(dx^2 + dy^2)
+          if (dist >= min_sep) {
+            next
+          }
+          if (dist < 0.05) {
+            angle <- ((i * 5L + j * 11L) %% 360L) * pi / 180
+            dx <- cos(angle)
+            dy <- sin(angle)
+            dist <- 0.05
+          }
+          push <- (min_sep - dist) / 2
+          label_x[i] <- label_x[i] - push * dx / dist
+          label_y[i] <- label_y[i] - push * dy / dist
+          label_x[j] <- label_x[j] + push * dx / dist
+          label_y[j] <- label_y[j] + push * dy / dist
+          moved <- TRUE
+        }
+      }
+      if (!moved) {
+        break
+      }
+    }
+    list(x = label_x, y = label_y)
+  }
+
+  repelled <- repel_labels(label_x, label_y, min_label_sep, max_iter)
+  label_x <- repelled$x
+  label_y <- repelled$y
+
+  for (iter in seq_len(40L)) {
+    moved <- FALSE
+    for (i in seq_len(nrow(nodes))) {
+      for (j in seq_len(nrow(nodes))) {
+        if (i == j) {
+          next
+        }
+        dx <- label_x[i] - nodes$x[j]
+        dy <- label_y[i] - nodes$y[j]
+        dist <- sqrt(dx^2 + dy^2)
+        if (dist >= min_node_clearance) {
+          next
+        }
+        if (dist < 0.05) {
+          dx <- label_x[i] - nodes$x[i]
+          dy <- label_y[i] - nodes$y[i]
+          dist <- sqrt(dx^2 + dy^2)
+          if (dist < 0.05) {
+            dx <- 0
+            dy <- -1
+            dist <- 1
+          }
+        }
+        push <- (min_node_clearance - dist) * 0.55
+        label_x[i] <- label_x[i] + push * dx / dist
+        label_y[i] <- label_y[i] + push * dy / dist
+        moved <- TRUE
+      }
+    }
+    if (!moved) {
+      break
+    }
+  }
+
+  repelled <- repel_labels(label_x, label_y, min_label_sep, 40L)
+  label_x <- repelled$x
+  label_y <- repelled$y
+
+  nodes %>%
+    dplyr::mutate(
+      label_x = label_x,
+      label_y = label_y
+    )
+}
+
+#' Separate overlapping nodes, resolve labels, and rejoin edge endpoints
+prepare_passing_network_for_display <- function(network,
+                                                substitute_ids = NULL,
+                                                root = get_project_root()) {
+  substitute_ids <- substitute_ids %||% integer(0)
+  nodes <- network$nodes %>%
+    dplyr::mutate(
+      is_sub = .data$player_id %in% substitute_ids,
+      is_central = .data$player_id == .data$player_id[which.max(.data$total_passes)]
+    )
+
+  nodes <- resolve_passing_network_node_positions(nodes)
+  nodes <- compute_passing_network_label_positions(nodes)
+
+  coord_map <- nodes %>%
+    dplyr::select("player_id", "x", "y")
+
+  edges <- network$edges
+  if ("x_from" %in% names(edges)) {
+    edges <- edges %>%
+      dplyr::select(-dplyr::all_of(c("x_from", "y_from", "x_to", "y_to")))
+  }
+
+  edges <- edges %>%
+    dplyr::inner_join(
+      coord_map %>% dplyr::rename(x_from = x, y_from = y),
+      by = c("passer_id" = "player_id")
+    ) %>%
+    dplyr::inner_join(
+      coord_map %>% dplyr::rename(x_to = x, y_to = y),
+      by = c("recipient_id" = "player_id")
+    )
+
+  list(nodes = nodes, edges = edges)
+}
+
 #' Build one team's passing-network ggplot layer (no title)
 build_passing_network_plot <- function(network,
                                        team_color = SDC_PALETTE[["blue"]],
@@ -214,15 +430,19 @@ build_passing_network_plot <- function(network,
                                        label_family = SDC_FONTS$body,
                                        compact = FALSE,
                                        show_substitute_rings = FALSE,
-                                       pitch_style = c("sb", "default")) {
+                                       pitch_style = c("sb", "default"),
+                                       root = get_project_root()) {
   pitch_style <- match.arg(pitch_style)
+  substitute_ids <- substitute_ids %||% integer(0)
+  network <- prepare_passing_network_for_display(
+    network,
+    substitute_ids = substitute_ids,
+    root = root
+  )
   nodes <- network$nodes
   edges <- network$edges
   max_count <- max(edges$pass_count, na.rm = TRUE)
   min_count <- min(edges$pass_count, na.rm = TRUE)
-  substitute_ids <- substitute_ids %||% integer(0)
-  nodes <- nodes %>%
-    dplyr::mutate(is_sub = .data$player_id %in% substitute_ids)
 
   size_range <- if (isTRUE(compact)) c(3.2, 8.5) else c(5.5, 13)
   stroke_base <- if (isTRUE(compact)) 0.85 else 1.05
@@ -313,10 +533,10 @@ build_passing_network_plot <- function(network,
       )
   }
 
-  if (isTRUE(show_substitute_rings) && any(nodes$is_sub)) {
+  if (isTRUE(show_substitute_rings) && any(nodes$is_sub & !nodes$is_central)) {
     p <- p +
       ggplot2::geom_point(
-        data = nodes %>% dplyr::filter(.data$is_sub),
+        data = nodes %>% dplyr::filter(.data$is_sub, !.data$is_central),
         ggplot2::aes(x = .data$x, y = .data$y),
         shape = 1,
         size = if (compact) 4.2 else 5.4,
@@ -325,8 +545,9 @@ build_passing_network_plot <- function(network,
       )
   }
 
-  starters <- nodes %>% dplyr::filter(!.data$is_sub)
-  subs <- nodes %>% dplyr::filter(.data$is_sub)
+  starters <- nodes %>% dplyr::filter(!.data$is_sub, !.data$is_central)
+  subs <- nodes %>% dplyr::filter(.data$is_sub, !.data$is_central)
+  central <- nodes %>% dplyr::filter(.data$is_central)
 
   if (nrow(starters) > 0) {
     p <- p +
@@ -352,16 +573,43 @@ build_passing_network_plot <- function(network,
       )
   }
 
+  if (nrow(central) > 0) {
+    if (!requireNamespace("ggimage", quietly = TRUE)) {
+      install.packages("ggimage", repos = "https://cloud.r-project.org")
+    }
+    central <- central %>%
+      dplyr::mutate(
+        star_icon = central_player_star_icon_path(team_color, root = root)
+      )
+    p <- p +
+      ggplot2::geom_point(
+        data = central,
+        ggplot2::aes(x = .data$x, y = .data$y),
+        shape = 21,
+        size = if (compact) 7.8 else 9.2,
+        fill = "white",
+        colour = "white",
+        stroke = 0
+      ) +
+      ggimage::geom_image(
+        data = central,
+        ggplot2::aes(x = .data$x, y = .data$y, image = .data$star_icon),
+        size = if (compact) 0.068 else 0.082,
+        asp = 1
+      )
+  }
+
   p <- p +
     ggplot2::scale_size_continuous(range = size_range, guide = "none") +
     ggplot2::geom_text(
       data = nodes,
-      ggplot2::aes(x = .data$x, y = .data$y, label = .data$player_label),
+      ggplot2::aes(x = .data$label_x, y = .data$label_y, label = .data$player_label),
       family = label_family,
       size = label_size,
       colour = "#111111",
       fontface = "bold",
-      vjust = -1.05
+      hjust = 0.5,
+      vjust = 0.5
     ) +
     ggplot2::labs(x = NULL, y = NULL)
 
@@ -711,16 +959,28 @@ build_full_match_passing_network_panel <- function(events_df,
 
 #' Compact starter / substitute legend for passing networks
 passing_network_status_legend <- function(icon_color = "#444444",
-                                          layout = c("vertical", "horizontal")) {
+                                          layout = c("vertical", "horizontal"),
+                                          root = get_project_root()) {
   layout <- match.arg(layout)
 
   if (layout == "vertical") {
+    star_icon <- central_player_star_icon_path(icon_color, root = root)
+    legend_df <- tibble::tibble(
+      x = 0.5,
+      y = 0.20,
+      image = star_icon
+    )
+
+    if (!requireNamespace("ggimage", quietly = TRUE)) {
+      install.packages("ggimage", repos = "https://cloud.r-project.org")
+    }
+
     return(
       ggplot2::ggplot() +
         ggplot2::annotate(
           "point",
           x = 0.5,
-          y = 0.62,
+          y = 0.82,
           size = 3.0,
           colour = icon_color,
           fill = icon_color,
@@ -730,17 +990,17 @@ passing_network_status_legend <- function(icon_color = "#444444",
         ggplot2::annotate(
           "text",
           x = 0.5,
-          y = 0.62,
+          y = 0.82,
           label = "Starter",
-          vjust = 2.4,
+          vjust = 2.5,
           family = SDC_FONTS$body,
-          size = 2.7,
+          size = 2.6,
           colour = "#333333"
         ) +
         ggplot2::annotate(
           "point",
           x = 0.5,
-          y = 0.38,
+          y = 0.50,
           size = 3.4,
           colour = icon_color,
           shape = 1,
@@ -749,12 +1009,39 @@ passing_network_status_legend <- function(icon_color = "#444444",
         ggplot2::annotate(
           "text",
           x = 0.5,
-          y = 0.38,
+          y = 0.50,
           label = "Substitute",
-          vjust = 2.4,
+          vjust = 2.5,
           family = SDC_FONTS$body,
-          size = 2.7,
+          size = 2.6,
           colour = "#333333"
+        ) +
+        ggplot2::annotate(
+          "point",
+          x = 0.5,
+          y = 0.20,
+          size = 3.0,
+          fill = "white",
+          colour = "white",
+          shape = 21,
+          stroke = 0
+        ) +
+        ggimage::geom_image(
+          data = legend_df,
+          ggplot2::aes(x = .data$x, y = .data$y, image = .data$image),
+          size = 0.040,
+          asp = 1
+        ) +
+        ggplot2::annotate(
+          "text",
+          x = 0.5,
+          y = 0.20,
+          label = "Most\ninvolved",
+          vjust = 2.5,
+          family = SDC_FONTS$body,
+          size = 2.5,
+          colour = "#333333",
+          lineheight = 0.9
         ) +
         ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off") +
         ggplot2::theme_void() +
@@ -818,7 +1105,7 @@ viz_match_passing_networks_combined <- function(events_df,
                                                 min_passes_home = 4L,
                                                 min_passes_away = 4L,
                                                 title = "Passing networks",
-                                                subtitle = "Full match · darker links = more passes between players") {
+                                                subtitle = "Full match · darker links = more passes · larger nodes = greater pass involvement") {
   if (!requireNamespace("patchwork", quietly = TRUE)) {
     install.packages("patchwork", repos = "https://cloud.r-project.org")
   }
