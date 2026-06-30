@@ -195,12 +195,111 @@ compute_passing_network <- function(events_df,
 
   nodes <- nodes %>%
     dplyr::left_join(node_degree, by = c("player_id" = "player_id")) %>%
+    dplyr::left_join(
+      compute_network_player_pass_accuracy(
+        events_df,
+        team_name = team_name,
+        match_id = match_id,
+        half = half
+      ),
+      by = "player_id"
+    ) %>%
     dplyr::mutate(
       total_passes = dplyr::coalesce(.data$total_passes, 0L),
+      pass_accuracy = dplyr::coalesce(.data$pass_accuracy, 0.5),
       team_name = team_name
     )
 
   list(nodes = nodes, edges = edges)
+}
+
+#' Per-player full-match pass accuracy (completed / attempts)
+compute_network_player_pass_accuracy <- function(events_df,
+                                                 team_name,
+                                                 match_id = NULL,
+                                                 half = NULL) {
+  passes <- events_df %>%
+    dplyr::filter(
+      .data$`type.name` == "Pass",
+      .data$`team.name` == !!team_name,
+      !is.na(.data$`player.id`)
+    )
+
+  if (!is.null(match_id)) {
+    passes <- passes %>% dplyr::filter(.data$match_id == !!match_id)
+  }
+  if (!is.null(half)) {
+    passes <- filter_events_by_half(passes, half = half)
+  }
+
+  if (nrow(passes) == 0L) {
+    return(tibble::tibble(player_id = integer(), pass_accuracy = numeric()))
+  }
+
+  passes %>%
+    dplyr::group_by(.data$`player.id`) %>%
+    dplyr::summarise(
+      pass_accuracy = sum(is.na(.data$`pass.outcome.name`)) / dplyr::n(),
+      .groups = "drop"
+    ) %>%
+    dplyr::rename(player_id = "player.id")
+}
+
+#' Pass-accuracy palette with wide light→dark spread for network nodes
+passing_network_accuracy_palette <- function(color, n = 9L) {
+  grDevices::colorRampPalette(c(
+    "#FFFFFF",
+    gradient_lightest(color, mix = 0.82),
+    gradient_lightest(color, mix = 0.52),
+    color,
+    gradient_darkest(color, amount = 0.36)
+  ))(n)
+}
+
+#' Non-linear stop positions so mid-range accuracies stay visibly distinct
+passing_network_accuracy_palette_values <- function() {
+  c(0, 0.22, 0.48, 0.72, 1)
+}
+
+#' Map pass accuracy to a 0–1 color value using the full squad range
+passing_network_accuracy_color_value <- function(pass_accuracy) {
+  acc <- pass_accuracy
+  valid <- is.finite(acc)
+  n_valid <- sum(valid)
+  if (n_valid <= 1L) {
+    return(dplyr::if_else(valid, 0.5, NA_real_))
+  }
+
+  ranks <- rank(acc[valid], ties.method = "average")
+  out <- rep(NA_real_, length(acc))
+  out[valid] <- (ranks - 1) / (n_valid - 1)
+  out
+}
+
+#' Sample one colour from the team heatmap palette at a given color value (0–1)
+passing_network_accuracy_palette_color <- function(color_value,
+                                                   team_color,
+                                                   n = 101L) {
+  anchor_colors <- c(
+    "#FFFFFF",
+    gradient_lightest(team_color, mix = 0.82),
+    gradient_lightest(team_color, mix = 0.52),
+    team_color,
+    gradient_darkest(team_color, amount = 0.36)
+  )
+  anchor_values <- passing_network_accuracy_palette_values()
+  colors <- grDevices::colorRampPalette(anchor_colors, space = "Lab")(max(9L, n))
+
+  pos <- pmin(pmax(color_value, 0), 1)
+  palette_pos <- stats::approx(
+    x = anchor_values,
+    y = seq(0, 1, length.out = length(anchor_colors)),
+    xout = pos,
+    rule = 2
+  )$y
+  palette_pos <- pmin(pmax(palette_pos, 0), 1)
+
+  colors[floor(palette_pos * (length(colors) - 1)) + 1L]
 }
 
 #' Push apart nodes that share or nearly share the same average pitch position
@@ -439,10 +538,21 @@ build_passing_network_plot <- function(network,
     substitute_ids = substitute_ids,
     root = root
   )
-  nodes <- network$nodes
+  nodes <- network$nodes %>%
+    dplyr::mutate(
+      pass_accuracy_color = passing_network_accuracy_color_value(.data$pass_accuracy)
+    )
   edges <- network$edges
   max_count <- max(edges$pass_count, na.rm = TRUE)
   min_count <- min(edges$pass_count, na.rm = TRUE)
+  accuracy_anchor_colors <- c(
+    "#FFFFFF",
+    gradient_lightest(team_color, mix = 0.82),
+    gradient_lightest(team_color, mix = 0.52),
+    team_color,
+    gradient_darkest(team_color, amount = 0.36)
+  )
+  accuracy_palette_values <- passing_network_accuracy_palette_values()
 
   size_range <- if (isTRUE(compact)) c(3.2, 8.5) else c(5.5, 13)
   stroke_base <- if (isTRUE(compact)) 0.85 else 1.05
@@ -537,10 +647,9 @@ build_passing_network_plot <- function(network,
     p <- p +
       ggplot2::geom_point(
         data = nodes %>% dplyr::filter(.data$is_sub, !.data$is_central),
-        ggplot2::aes(x = .data$x, y = .data$y),
+        ggplot2::aes(x = .data$x, y = .data$y, colour = .data$pass_accuracy_color),
         shape = 1,
         size = if (compact) 4.2 else 5.4,
-        colour = team_color,
         stroke = 1.2
       )
   }
@@ -553,9 +662,13 @@ build_passing_network_plot <- function(network,
     p <- p +
       ggplot2::geom_point(
         data = starters,
-        ggplot2::aes(x = .data$x, y = .data$y, size = .data$total_passes),
-        fill = team_color,
-        colour = team_color,
+        ggplot2::aes(
+          x = .data$x,
+          y = .data$y,
+          size = .data$total_passes,
+          fill = .data$pass_accuracy_color,
+          colour = .data$pass_accuracy_color
+        ),
         shape = 21,
         stroke = stroke_base
       )
@@ -565,9 +678,13 @@ build_passing_network_plot <- function(network,
     p <- p +
       ggplot2::geom_point(
         data = subs,
-        ggplot2::aes(x = .data$x, y = .data$y, size = .data$total_passes),
+        ggplot2::aes(
+          x = .data$x,
+          y = .data$y,
+          size = .data$total_passes,
+          colour = .data$pass_accuracy_color
+        ),
         fill = "white",
-        colour = team_color,
         shape = 21,
         stroke = stroke_base
       )
@@ -579,18 +696,14 @@ build_passing_network_plot <- function(network,
     }
     central <- central %>%
       dplyr::mutate(
-        star_icon = central_player_star_icon_path(team_color, root = root)
+        star_icon = purrr::map_chr(
+          .data$pass_accuracy_color,
+          passing_network_accuracy_palette_color,
+          team_color = team_color
+        ) %>%
+          purrr::map_chr(~ central_player_star_icon_path(.x, root = root))
       )
     p <- p +
-      ggplot2::geom_point(
-        data = central,
-        ggplot2::aes(x = .data$x, y = .data$y),
-        shape = 21,
-        size = if (compact) 7.8 else 9.2,
-        fill = "white",
-        colour = "white",
-        stroke = 0
-      ) +
       ggimage::geom_image(
         data = central,
         ggplot2::aes(x = .data$x, y = .data$y, image = .data$star_icon),
@@ -600,6 +713,20 @@ build_passing_network_plot <- function(network,
   }
 
   p <- p +
+    ggplot2::scale_fill_gradientn(
+      colours = accuracy_anchor_colors,
+      values = accuracy_palette_values,
+      limits = c(0, 1),
+      oob = scales::squish,
+      guide = "none"
+    ) +
+    ggplot2::scale_colour_gradientn(
+      colours = accuracy_anchor_colors,
+      values = accuracy_palette_values,
+      limits = c(0, 1),
+      oob = scales::squish,
+      guide = "none"
+    ) +
     ggplot2::scale_size_continuous(range = size_range, guide = "none") +
     ggplot2::geom_text(
       data = nodes,
@@ -1105,7 +1232,7 @@ viz_match_passing_networks_combined <- function(events_df,
                                                 min_passes_home = 4L,
                                                 min_passes_away = 4L,
                                                 title = "Passing networks",
-                                                subtitle = "Full match · darker links = more passes · larger nodes = greater pass involvement") {
+                                                subtitle = "Full match · darker links = more passes · larger nodes = pass involvement · darker nodes = higher pass accuracy") {
   if (!requireNamespace("patchwork", quietly = TRUE)) {
     install.packages("patchwork", repos = "https://cloud.r-project.org")
   }
