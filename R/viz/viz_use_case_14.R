@@ -1221,10 +1221,12 @@ viz_match_share_section <- function(share_df_section,
                                     home_color = SDC_PALETTE[["green"]],
                                     away_color = SDC_PALETTE[["red"]],
                                     display_home = NULL,
-                                    display_away = NULL) {
+                                    display_away = NULL,
+                                    bar_half = 0.20,
+                                    row_step = 0.72,
+                                    value_label_size = 2.5,
+                                    metric_label_size = 2.35) {
   n_rows <- nrow(share_df_section)
-  bar_half <- 0.20
-  row_step <- 0.72
 
   share_df_section <- share_df_section %>%
     dplyr::mutate(y = (.env$n_rows - seq_along(.data$metric)) * .env$row_step + 1)
@@ -1258,7 +1260,7 @@ viz_match_share_section <- function(share_df_section,
       hjust = 0,
       family = SDC_FONTS$body,
       fontface = "bold",
-      size = 2.5,
+      size = value_label_size,
       colour = "white"
     ) +
     geom_text(
@@ -1266,13 +1268,13 @@ viz_match_share_section <- function(share_df_section,
       hjust = 1,
       family = SDC_FONTS$body,
       fontface = "bold",
-      size = 2.5,
+      size = value_label_size,
       colour = "white"
     ) +
     geom_text(
-      aes(x = 0.5, y = .data$y + 0.34, label = .data$metric),
+      aes(x = 0.5, y = .data$y + bar_half + 0.14, label = .data$metric),
       family = SDC_FONTS$body,
-      size = 2.35,
+      size = metric_label_size,
       colour = "#222222"
     ) +
     annotate(

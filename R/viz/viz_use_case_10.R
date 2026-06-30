@@ -324,15 +324,34 @@ build_passing_network_plot <- function(network,
       )
   }
 
+  starters <- nodes %>% dplyr::filter(!.data$is_sub)
+  subs <- nodes %>% dplyr::filter(.data$is_sub)
+
+  if (nrow(starters) > 0) {
+    p <- p +
+      ggplot2::geom_point(
+        data = starters,
+        ggplot2::aes(x = .data$x, y = .data$y, size = .data$total_passes),
+        fill = team_color,
+        colour = team_color,
+        shape = 21,
+        stroke = stroke_base
+      )
+  }
+
+  if (nrow(subs) > 0) {
+    p <- p +
+      ggplot2::geom_point(
+        data = subs,
+        ggplot2::aes(x = .data$x, y = .data$y, size = .data$total_passes),
+        fill = "white",
+        colour = team_color,
+        shape = 21,
+        stroke = stroke_base
+      )
+  }
+
   p <- p +
-    ggplot2::geom_point(
-      data = nodes,
-      ggplot2::aes(x = .data$x, y = .data$y, size = .data$total_passes),
-      fill = team_color,
-      colour = team_color,
-      shape = 21,
-      stroke = stroke_base
-    ) +
     ggplot2::scale_size_continuous(range = size_range, guide = "none") +
     ggplot2::geom_text(
       data = nodes,
@@ -509,8 +528,24 @@ identify_substitute_players <- function(events_df,
     dplyr::pull(.data$`player.id`)
   sub_ids <- sub_ids[!is.na(sub_ids)]
 
-  first_period %>%
+    first_period %>%
     dplyr::filter(.data$first_period >= 2L, .data$`player.id` %in% sub_ids) %>%
+    dplyr::pull(.data$`player.id`)
+}
+
+#' Substitutes for a full-match passing network
+identify_match_substitutes <- function(events_df, team_name, match_id = NULL) {
+  data <- ensure_viz_aliases(events_df) %>%
+    dplyr::filter(.data$`team.name` == !!team_name, !is.na(.data$`player.id`))
+
+  if (!is.null(match_id)) {
+    data <- data %>% dplyr::filter(.data$match_id == !!match_id)
+  }
+
+  data %>%
+    dplyr::group_by(.data$`player.id`) %>%
+    dplyr::summarise(first_period = min(.data$period, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::filter(.data$first_period >= 2L) %>%
     dplyr::pull(.data$`player.id`)
 }
 
@@ -640,15 +675,21 @@ build_full_match_passing_network_panel <- function(events_df,
     )
   }
 
+  sub_ids <- identify_match_substitutes(
+    events_df,
+    team_name = team_name,
+    match_id = match_id
+  )
+
   build_passing_network_plot(
     net,
     team_color = team_color,
-    substitute_ids = integer(0),
+    substitute_ids = sub_ids,
     edge_alpha = NULL,
     edge_alpha_range = c(0.03, 0.95),
     label_size = label_size,
-    max_edge_width = 5.5,
-    show_substitute_rings = FALSE,
+    max_edge_width = 5.0,
+    show_substitute_rings = TRUE,
     pitch_style = "sb"
   ) +
     ggplot2::labs(title = team_label) +
@@ -664,6 +705,53 @@ build_full_match_passing_network_panel <- function(events_df,
       ),
       plot.margin = ggplot2::margin(0, 0, 0, 0)
     )
+}
+
+#' Compact starter / substitute legend for passing networks
+passing_network_status_legend <- function(icon_color = "#444444") {
+  ggplot2::ggplot() +
+    ggplot2::annotate(
+      "point",
+      x = 0.02,
+      y = 0.55,
+      size = 2.6,
+      colour = icon_color,
+      fill = icon_color,
+      shape = 21,
+      stroke = 0.7
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.06,
+      y = 0.55,
+      label = "Starter",
+      hjust = 0,
+      family = SDC_FONTS$body,
+      size = 2.6,
+      colour = "#333333"
+    ) +
+    ggplot2::annotate(
+      "point",
+      x = 0.22,
+      y = 0.55,
+      size = 3.1,
+      colour = icon_color,
+      shape = 1,
+      stroke = 0.9
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.26,
+      y = 0.55,
+      label = "Substitute",
+      hjust = 0,
+      family = SDC_FONTS$body,
+      size = 2.6,
+      colour = "#333333"
+    ) +
+    ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(0, 0, 0, 0))
 }
 
 #' UC10c: full-match passing networks (one pitch per team, both halves combined)
@@ -700,7 +788,7 @@ viz_match_passing_networks_combined <- function(events_df,
     match_id = match_id,
     min_passes = min_passes_home,
     team_label = home_label,
-    label_size = 3.9
+    label_size = 3.5
   )
 
   p_away <- build_full_match_passing_network_panel(
@@ -710,13 +798,21 @@ viz_match_passing_networks_combined <- function(events_df,
     match_id = match_id,
     min_passes = min_passes_away,
     team_label = away_label,
-    label_size = 3.9
+    label_size = 3.5
   )
 
-  patchwork::wrap_plots(
+  status_legend <- passing_network_status_legend(icon_color = "#444444")
+
+  pitches <- patchwork::wrap_plots(
     list(p_home, p_away),
     ncol = 2,
     widths = c(0.5, 0.5)
+  )
+
+  patchwork::wrap_plots(
+    list(status_legend, pitches),
+    ncol = 1,
+    heights = c(0.05, 0.95)
   ) +
     patchwork::plot_annotation(
       title = title,

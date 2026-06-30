@@ -685,7 +685,11 @@ viz_player_skill_comparison <- function(events_df,
     home_color = tops$home$team_color[[1]],
     away_color = tops$away$team_color[[1]],
     display_home = home_header,
-    display_away = away_header
+    display_away = away_header,
+    bar_half = 0.22,
+    row_step = 0.78,
+    value_label_size = 2.75,
+    metric_label_size = 2.55
   )
 
   panel +
@@ -695,7 +699,7 @@ viz_player_skill_comparison <- function(events_df,
       theme = theme_sdc(base_size = 10) +
         ggplot2::theme(
           plot.title = ggplot2::element_text(size = 12, face = "bold", hjust = 0),
-          plot.subtitle = ggplot2::element_text(size = 8.5, hjust = 0, colour = "#555555"),
+          plot.subtitle = ggplot2::element_text(size = 9, hjust = 0, colour = "#555555"),
           plot.margin = ggplot2::margin(t = 6, r = 4, b = 2, l = 4)
         )
     )
@@ -822,7 +826,7 @@ viz_structure_momentum_grid <- function(events_df,
   top_row <- patchwork::wrap_plots(
     list(panel_a, panel_b),
     ncol = 2,
-    widths = c(0.46, 0.54)
+    widths = c(0.58, 0.42)
   )
 
   grid_body <- patchwork::wrap_plots(
@@ -830,7 +834,7 @@ viz_structure_momentum_grid <- function(events_df,
     patchwork::plot_spacer(),
     panel_c,
     ncol = 1,
-    heights = c(0.22, 0.008, 0.772)
+    heights = c(0.28, 0.008, 0.712)
   )
 
   grid_body +
