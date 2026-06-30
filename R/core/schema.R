@@ -14,7 +14,7 @@ ensure_viz_aliases <- function(events_df) {
     return(events_df)
   }
 
-  events_df %>%
+  out <- events_df %>%
     dplyr::mutate(
       shot_statsbomb_xg = dplyr::coalesce(
         .data$shot_statsbomb_xg,
@@ -85,6 +85,18 @@ ensure_viz_aliases <- function(events_df) {
         .data$duel_type_name
       )
     )
+
+  if ("obv_total_net" %in% names(out) && "obv.total.net" %in% names(out)) {
+    out <- out %>%
+      dplyr::mutate(
+        obv_total_net = dplyr::coalesce(.data$obv_total_net, .data$`obv.total.net`)
+      )
+  } else if ("obv.total.net" %in% names(out)) {
+    out <- out %>%
+      dplyr::mutate(obv_total_net = .data$`obv.total.net`)
+  }
+
+  out
 }
 
 add_canonical_event_columns <- function(events_df) {

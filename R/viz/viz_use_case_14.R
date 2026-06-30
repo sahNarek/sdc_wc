@@ -1138,7 +1138,8 @@ viz_game_quality_attacking_heatmaps <- function(events_df,
 #' Panel B — goals vs non-penalty xG comparison
 viz_goals_vs_xg_card <- function(summary_df,
                                  title = "The score outran the chances",
-                                 subtitle = "Goals vs non-penalty expected goals") {
+                                 subtitle = "Goals vs non-penalty expected goals",
+                                 show_caption = TRUE) {
   plot_df <- summary_df %>%
     tidyr::pivot_longer(
       cols = c("goals", "np_xg"),
@@ -1169,6 +1170,15 @@ viz_goals_vs_xg_card <- function(summary_df,
       )
     )
 
+  caption_text <- if (isTRUE(show_caption)) {
+    paste(
+      paste(delta_labels$label, collapse = " · "),
+      "\nEach row compares goals scored with non-penalty xG."
+    )
+  } else {
+    NULL
+  }
+
   ggplot(plot_df, aes(y = .data$row_label, x = .data$value)) +
     geom_col(
       aes(fill = .data$team_color, alpha = .data$bar_alpha),
@@ -1193,15 +1203,12 @@ viz_goals_vs_xg_card <- function(summary_df,
       subtitle = subtitle,
       x = NULL,
       y = NULL,
-      caption = paste(
-        paste(delta_labels$label, collapse = " · "),
-        "\nEach row compares goals scored with non-penalty xG."
-      )
+      caption = caption_text
     ) +
     theme_sdc(base_size = 10) +
     theme(
-      plot.title = element_text(size = 13, face = "bold", hjust = 0),
-      plot.subtitle = element_text(size = 10, hjust = 0, colour = "#555555"),
+      plot.title = element_text(size = 11, face = "bold", hjust = 0),
+      plot.subtitle = element_text(size = 8.5, hjust = 0, colour = "#555555"),
       plot.caption = element_text(size = 7.8, hjust = 0, colour = "#555555"),
       legend.position = "none",
       axis.text.y = element_text(size = 8.5)

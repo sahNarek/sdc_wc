@@ -91,7 +91,12 @@ flatten_event <- function(event, match_id) {
     shot_end_location_x = coord_x(if (!is.null(shot)) shot$end_location else NULL),
     shot_end_location_y = coord_y(if (!is.null(shot)) shot$end_location else NULL),
     shot_end_location_z = coord_z(if (!is.null(shot)) shot$end_location else NULL),
-    duel_type_name = nested_name(if (!is.null(duel)) duel$type else NULL)
+    duel_type_name = nested_name(if (!is.null(duel)) duel$type else NULL),
+    obv_total_net = if (!is.null(event$obv_total_net)) {
+      as.numeric(event$obv_total_net)
+    } else {
+      NA_real_
+    }
   )
 }
 
@@ -130,6 +135,7 @@ add_statsbomb_aliases <- function(events_df) {
       `shot.end_location.x` = .data$shot_end_location_x,
       `shot.end_location.y` = .data$shot_end_location_y,
       `shot.end_location.z` = .data$shot_end_location_z,
-      `duel.type.name` = .data$duel_type_name
+      `duel.type.name` = .data$duel_type_name,
+      `obv.total.net` = .data$obv_total_net
     )
 }

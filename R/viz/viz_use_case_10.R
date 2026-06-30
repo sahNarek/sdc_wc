@@ -11,10 +11,34 @@ passing_network_label <- function(name, display_name = NULL) {
   parts[[length(parts)]]
 }
 
+#' Map half label to StatsBomb period id
+half_to_period <- function(half) {
+  if (is.null(half)) {
+    return(NULL)
+  }
+  half <- match.arg(half, c("first", "second"))
+  if (half == "first") {
+    1L
+  } else {
+    2L
+  }
+}
+
+#' Filter events to one match half (period 1 or 2)
+filter_events_by_half <- function(events_df, half = NULL) {
+  period_id <- half_to_period(half)
+  if (is.null(period_id)) {
+    return(events_df)
+  }
+  events_df %>%
+    dplyr::filter(.data$period == .env$period_id)
+}
+
 #' Completed team passes with passer and recipient ids
 filter_team_completed_passes <- function(events_df,
                                          team_name,
-                                         match_id = NULL) {
+                                         match_id = NULL,
+                                         half = NULL) {
   data <- events_df %>%
     dplyr::filter(
       .data$`type.name` == "Pass",
@@ -27,6 +51,9 @@ filter_team_completed_passes <- function(events_df,
   if (!is.null(match_id)) {
     data <- data %>% dplyr::filter(.data$match_id == !!match_id)
   }
+  if (!is.null(half)) {
+    data <- filter_events_by_half(data, half = half)
+  }
 
   data
 }
@@ -35,6 +62,7 @@ filter_team_completed_passes <- function(events_df,
 compute_passing_network_positions <- function(events_df,
                                               team_name,
                                               match_id = NULL,
+                                              half = NULL,
                                               normalize_direction = TRUE) {
   touches <- events_df %>%
     dplyr::filter(
@@ -46,6 +74,9 @@ compute_passing_network_positions <- function(events_df,
 
   if (!is.null(match_id)) {
     touches <- touches %>% dplyr::filter(.data$match_id == !!match_id)
+  }
+  if (!is.null(half)) {
+    touches <- filter_events_by_half(touches, half = half)
   }
 
   if (nrow(touches) == 0) {
@@ -91,22 +122,31 @@ compute_passing_network_positions <- function(events_df,
 compute_passing_network <- function(events_df,
                                     team_name,
                                     match_id = NULL,
+                                    half = NULL,
                                     min_passes = 3,
                                     normalize_direction = TRUE) {
   passes <- filter_team_completed_passes(
     events_df,
     team_name = team_name,
-    match_id = match_id
+    match_id = match_id,
+    half = half
   )
 
   if (nrow(passes) == 0) {
-    stop("No completed passes with recipients found for ", team_name, call. = FALSE)
+    half_label <- if (!is.null(half)) paste0(" (", half, " half)") else ""
+    stop(
+      "No completed passes with recipients found for ",
+      team_name,
+      half_label,
+      call. = FALSE
+    )
   }
 
   positions <- compute_passing_network_positions(
     events_df,
     team_name = team_name,
     match_id = match_id,
+    half = half,
     normalize_direction = normalize_direction
   )
 
@@ -166,15 +206,58 @@ compute_passing_network <- function(events_df,
 #' Build one team's passing-network ggplot layer (no title)
 build_passing_network_plot <- function(network,
                                        team_color = SDC_PALETTE[["blue"]],
+                                       substitute_ids = NULL,
                                        edge_alpha = 0.55,
-                                       max_edge_width = 4.5) {
+                                       max_edge_width = 4.5,
+                                       label_size = 2.8,
+                                       compact = FALSE,
+                                       pitch_style = c("sb", "default")) {
+  pitch_style <- match.arg(pitch_style)
   nodes <- network$nodes
   edges <- network$edges
   max_count <- max(edges$pass_count, na.rm = TRUE)
+  substitute_ids <- substitute_ids %||% integer(0)
+  nodes <- nodes %>%
+    dplyr::mutate(is_sub = .data$player_id %in% substitute_ids)
 
-  ggplot2::ggplot() +
-    draw_pitch_markings(colour = "black", linewidth = 0.55) +
-    draw_pitch_outer_border(colour = "black", linewidth = 1.0) +
+  size_range <- if (isTRUE(compact)) c(2.2, 5.2) else c(3.2, 7.5)
+  stroke_base <- if (isTRUE(compact)) 0.75 else 1.0
+  pitch_linewidth <- if (isTRUE(compact)) 0.4 else 0.45
+
+  pitch_layers <- if (pitch_style == "sb") {
+    c(
+      list(
+        ggplot2::annotate(
+          "rect",
+          xmin = 0,
+          xmax = 120,
+          ymin = 0,
+          ymax = 80,
+          fill = "#F3F6F0",
+          colour = NA
+        )
+      ),
+      draw_pitch_sb(colour = "#3D3D3D", linewidth = pitch_linewidth)
+    )
+  } else {
+    c(
+      draw_pitch_markings(
+        colour = "black",
+        linewidth = if (compact) 0.45 else 0.55
+      ),
+      draw_pitch_outer_border(
+        colour = "black",
+        linewidth = if (compact) 0.85 else 1.0
+      )
+    )
+  }
+
+  p <- ggplot2::ggplot()
+  for (layer in pitch_layers) {
+    p <- p + layer
+  }
+
+  p <- p +
     ggplot2::geom_segment(
       data = edges,
       ggplot2::aes(
@@ -192,28 +275,56 @@ build_passing_network_plot <- function(network,
       range = c(0.35, max_edge_width),
       limits = c(1, max_count),
       guide = "none"
-    ) +
+    )
+
+  if (any(nodes$is_sub)) {
+    p <- p +
+      ggplot2::geom_point(
+        data = nodes %>% dplyr::filter(.data$is_sub),
+        ggplot2::aes(x = .data$x, y = .data$y),
+        shape = 1,
+        size = if (compact) 3.6 else 4.2,
+        colour = team_color,
+        stroke = 1.1
+      )
+  }
+
+  p +
     ggplot2::geom_point(
       data = nodes,
       ggplot2::aes(x = .data$x, y = .data$y, size = .data$total_passes),
       fill = "white",
       colour = team_color,
       shape = 21,
-      stroke = 0.9
+      stroke = stroke_base
     ) +
-    ggplot2::scale_size_continuous(range = c(2.8, 6.5), guide = "none") +
+    ggplot2::scale_size_continuous(range = size_range, guide = "none") +
     ggplot2::geom_text(
       data = nodes,
       ggplot2::aes(x = .data$x, y = .data$y, label = .data$player_label),
       family = SDC_FONTS$body,
-      size = 2.8,
+      size = label_size,
       colour = "#222222",
       fontface = "bold"
     ) +
-    ggplot2::scale_x_continuous(limits = c(0, 120), expand = c(0, 0)) +
-    ggplot2::scale_y_reverse(limits = c(80, 0), expand = c(0, 0)) +
-    ggplot2::coord_fixed(ratio = 80 / 120) +
     ggplot2::labs(x = NULL, y = NULL)
+
+  if (pitch_style == "default") {
+    p <- p +
+      ggplot2::scale_x_continuous(limits = c(0, 120), expand = c(0, 0)) +
+      ggplot2::scale_y_reverse(limits = c(80, 0), expand = c(0, 0)) +
+      ggplot2::coord_fixed(ratio = 80 / 120)
+  }
+
+  p +
+    theme_sdc(base_size = if (compact) 9 else 10) +
+    ggplot2::theme(
+      axis.text = ggplot2::element_blank(),
+      axis.title = ggplot2::element_blank(),
+      axis.ticks = ggplot2::element_blank(),
+      panel.grid = ggplot2::element_blank(),
+      plot.margin = ggplot2::margin(2, 2, 2, 2)
+    )
 }
 
 #' UC10: Match passing networks for home and away in one 16:9 figure
@@ -335,5 +446,236 @@ viz_match_passing_networks <- function(events_df,
       subtitle = subtitle,
       caption = caption,
       theme = theme_sdc_article()
+    )
+}
+
+#' Players who entered during the match half (for substitute rings)
+identify_substitute_players <- function(events_df,
+                                        team_name,
+                                        half = c("first", "second"),
+                                        lineups_df = NULL) {
+  half <- match.arg(half)
+  data <- ensure_viz_aliases(events_df) %>%
+    dplyr::filter(.data$`team.name` == !!team_name, !is.na(.data$`player.id`))
+
+  first_period <- data %>%
+    dplyr::group_by(.data$`player.id`) %>%
+    dplyr::summarise(first_period = min(.data$period, na.rm = TRUE), .groups = "drop")
+
+  if (half == "second") {
+    return(first_period %>%
+      dplyr::filter(.data$first_period >= 2L) %>%
+      dplyr::pull(.data$`player.id`))
+  }
+
+  sub_ids <- data %>%
+    dplyr::filter(.data$`type.name` == "Substitution") %>%
+    dplyr::pull(.data$`player.id`)
+  sub_ids <- sub_ids[!is.na(sub_ids)]
+
+  first_period %>%
+    dplyr::filter(.data$first_period >= 2L, .data$`player.id` %in% sub_ids) %>%
+    dplyr::pull(.data$`player.id`)
+}
+
+#' Safe passing network compute with adjustable min edge weight
+try_passing_network <- function(events_df,
+                                team_name,
+                                match_id = NULL,
+                                half = NULL,
+                                min_passes = 3,
+                                normalize_direction = TRUE) {
+  tryCatch(
+    compute_passing_network(
+      events_df,
+      team_name = team_name,
+      match_id = match_id,
+      half = half,
+      min_passes = min_passes,
+      normalize_direction = normalize_direction
+    ),
+    error = function(e) NULL
+  )
+}
+
+#' One half passing network panel (internal)
+build_half_passing_network_panel <- function(events_df,
+                                             team_name,
+                                             team_color,
+                                             half,
+                                             match_id = NULL,
+                                             lineups_df = NULL,
+                                             min_passes = 3,
+                                             compact = FALSE,
+                                             pitch_style = "sb") {
+  net <- try_passing_network(
+    events_df,
+    team_name = team_name,
+    match_id = match_id,
+    half = half,
+    min_passes = min_passes
+  )
+  if (is.null(net)) {
+    net <- try_passing_network(
+      events_df,
+      team_name = team_name,
+      match_id = match_id,
+      half = half,
+      min_passes = max(2L, min_passes - 1L)
+    )
+  }
+  if (is.null(net)) {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::annotate(
+          "text",
+          x = 0.5,
+          y = 0.5,
+          label = "Insufficient pass links",
+          family = SDC_FONTS$body,
+          size = 3.2,
+          colour = "#666666"
+        ) +
+        ggplot2::theme_void()
+    )
+  }
+
+  sub_ids <- identify_substitute_players(
+    events_df,
+    team_name = team_name,
+    half = half,
+    lineups_df = lineups_df
+  )
+
+  build_passing_network_plot(
+    net,
+    team_color = team_color,
+    substitute_ids = sub_ids,
+    compact = compact,
+    pitch_style = pitch_style,
+    label_size = if (compact) 2.2 else 3.1,
+    max_edge_width = if (compact) 3.5 else 5.0
+  ) +
+    ggplot2::theme(
+      plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+      plot.margin = ggplot2::margin(4, 4, 4, 4)
+    )
+}
+
+#' UC10b: 2x2 half-by-half passing networks (teams x halves)
+viz_match_passing_networks_halves <- function(events_df,
+                                              match_id = NULL,
+                                              meta = NULL,
+                                              home_team = NULL,
+                                              away_team = NULL,
+                                              home_color = SDC_PALETTE[["green"]],
+                                              away_color = SDC_PALETTE[["red"]],
+                                              lineups_df = NULL,
+                                              min_passes_home = 3L,
+                                              min_passes_away = 3L,
+                                              min_passes_away_second = 2L,
+                                              title = "How they connected the passes",
+                                              subtitle = "Completed-pass networks by half · line thickness = pass volume") {
+  if (!requireNamespace("patchwork", quietly = TRUE)) {
+    install.packages("patchwork", repos = "https://cloud.r-project.org")
+  }
+
+  if (is.null(home_team) || is.null(away_team)) {
+    if (is.null(meta) || nrow(meta) == 0) {
+      stop("Provide home_team/away_team or match meta.", call. = FALSE)
+    }
+    home_team <- meta$home_team[[1]]
+    away_team <- meta$away_team[[1]]
+  }
+
+  home_label <- meta$display_home[[1]] %||% home_team
+  away_label <- meta$display_away[[1]] %||% away_team
+
+  p_home_1 <- build_half_passing_network_panel(
+    events_df, home_team, home_color, "first", match_id, lineups_df, min_passes_home
+  )
+  p_home_2 <- build_half_passing_network_panel(
+    events_df, home_team, home_color, "second", match_id, lineups_df, min_passes_home
+  )
+  p_away_1 <- build_half_passing_network_panel(
+    events_df, away_team, away_color, "first", match_id, lineups_df, min_passes_away
+  )
+  p_away_2 <- build_half_passing_network_panel(
+    events_df,
+    away_team,
+    away_color,
+    "second",
+    match_id,
+    lineups_df,
+    min_passes_away_second
+  )
+
+  col_header <- function(label) {
+    ggplot2::ggplot() +
+      ggplot2::annotate(
+        "text",
+        x = 0.5,
+        y = 0.5,
+        label = label,
+        family = SDC_FONTS$body,
+        fontface = "bold",
+        size = 3.8,
+        colour = "#333333"
+      ) +
+      ggplot2::theme_void()
+  }
+
+  row_label <- function(label, colour) {
+    ggplot2::ggplot() +
+      ggplot2::annotate(
+        "text",
+        x = 0.5,
+        y = 0.5,
+        label = label,
+        angle = 90,
+        family = SDC_FONTS$body,
+        fontface = "bold",
+        size = 3.6,
+        colour = colour
+      ) +
+      ggplot2::theme_void()
+  }
+
+  patchwork::wrap_plots(
+    list(
+      ggplot2::ggplot() + ggplot2::theme_void(),
+      col_header("First half"),
+      col_header("Second half"),
+      row_label(home_label, home_color),
+      p_home_1,
+      p_home_2,
+      row_label(away_label, away_color),
+      p_away_1,
+      p_away_2
+    ),
+    ncol = 3,
+    widths = c(0.06, 0.47, 0.47),
+    heights = c(0.04, 0.48, 0.48)
+  ) +
+    patchwork::plot_annotation(
+      title = title,
+      subtitle = subtitle,
+      theme = theme_sdc(base_size = 10) +
+        ggplot2::theme(
+          plot.title = ggplot2::element_text(
+            family = SDC_FONTS$title,
+            face = "bold",
+            size = 12,
+            hjust = 0,
+            colour = "#111111"
+          ),
+          plot.subtitle = ggplot2::element_text(
+            family = SDC_FONTS$body,
+            size = 9,
+            hjust = 0,
+            colour = "#555555"
+          ),
+          plot.margin = ggplot2::margin(b = 2, l = 2, r = 2, t = 2)
+        )
     )
 }
