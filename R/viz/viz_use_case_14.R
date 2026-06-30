@@ -1225,7 +1225,9 @@ viz_match_share_section <- function(share_df_section,
                                     bar_half = 0.20,
                                     row_step = 0.72,
                                     value_label_size = 2.5,
-                                    metric_label_size = 2.35) {
+                                    metric_label_size = 2.35,
+                                    metric_label_family = SDC_FONTS$body,
+                                    metric_label_offset = 0.14) {
   n_rows <- nrow(share_df_section)
 
   share_df_section <- share_df_section %>%
@@ -1272,8 +1274,13 @@ viz_match_share_section <- function(share_df_section,
       colour = "white"
     ) +
     geom_text(
-      aes(x = 0.5, y = .data$y + bar_half + 0.14, label = .data$metric),
-      family = SDC_FONTS$body,
+      aes(
+        x = 0.5,
+        y = .data$y + .env$bar_half + .env$metric_label_offset,
+        label = .data$metric
+      ),
+      family = metric_label_family,
+      fontface = "bold",
       size = metric_label_size,
       colour = "#222222"
     ) +

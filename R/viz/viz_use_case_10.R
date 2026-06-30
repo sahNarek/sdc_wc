@@ -211,6 +211,7 @@ build_passing_network_plot <- function(network,
                                        edge_alpha_range = c(0.04, 0.92),
                                        max_edge_width = 4.5,
                                        label_size = 2.8,
+                                       label_family = SDC_FONTS$body,
                                        compact = FALSE,
                                        show_substitute_rings = FALSE,
                                        pitch_style = c("sb", "default")) {
@@ -356,7 +357,7 @@ build_passing_network_plot <- function(network,
     ggplot2::geom_text(
       data = nodes,
       ggplot2::aes(x = .data$x, y = .data$y, label = .data$player_label),
-      family = SDC_FONTS$body,
+      family = label_family,
       size = label_size,
       colour = "#111111",
       fontface = "bold",
@@ -688,6 +689,7 @@ build_full_match_passing_network_panel <- function(events_df,
     edge_alpha = NULL,
     edge_alpha_range = c(0.03, 0.95),
     label_size = label_size,
+    label_family = SDC_FONTS$title,
     max_edge_width = 5.0,
     show_substitute_rings = TRUE,
     pitch_style = "sb"
@@ -708,7 +710,58 @@ build_full_match_passing_network_panel <- function(events_df,
 }
 
 #' Compact starter / substitute legend for passing networks
-passing_network_status_legend <- function(icon_color = "#444444") {
+passing_network_status_legend <- function(icon_color = "#444444",
+                                          layout = c("vertical", "horizontal")) {
+  layout <- match.arg(layout)
+
+  if (layout == "vertical") {
+    return(
+      ggplot2::ggplot() +
+        ggplot2::annotate(
+          "point",
+          x = 0.5,
+          y = 0.62,
+          size = 3.0,
+          colour = icon_color,
+          fill = icon_color,
+          shape = 21,
+          stroke = 0.7
+        ) +
+        ggplot2::annotate(
+          "text",
+          x = 0.5,
+          y = 0.62,
+          label = "Starter",
+          vjust = 2.4,
+          family = SDC_FONTS$body,
+          size = 2.7,
+          colour = "#333333"
+        ) +
+        ggplot2::annotate(
+          "point",
+          x = 0.5,
+          y = 0.38,
+          size = 3.4,
+          colour = icon_color,
+          shape = 1,
+          stroke = 0.9
+        ) +
+        ggplot2::annotate(
+          "text",
+          x = 0.5,
+          y = 0.38,
+          label = "Substitute",
+          vjust = 2.4,
+          family = SDC_FONTS$body,
+          size = 2.7,
+          colour = "#333333"
+        ) +
+        ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), clip = "off") +
+        ggplot2::theme_void() +
+        ggplot2::theme(plot.margin = ggplot2::margin(0, 0, 0, 0))
+    )
+  }
+
   ggplot2::ggplot() +
     ggplot2::annotate(
       "point",
@@ -801,18 +854,15 @@ viz_match_passing_networks_combined <- function(events_df,
     label_size = 3.5
   )
 
-  status_legend <- passing_network_status_legend(icon_color = "#444444")
-
-  pitches <- patchwork::wrap_plots(
-    list(p_home, p_away),
-    ncol = 2,
-    widths = c(0.5, 0.5)
+  status_legend <- passing_network_status_legend(
+    icon_color = "#444444",
+    layout = "vertical"
   )
 
   patchwork::wrap_plots(
-    list(status_legend, pitches),
-    ncol = 1,
-    heights = c(0.05, 0.95)
+    list(p_home, status_legend, p_away),
+    ncol = 3,
+    widths = c(0.47, 0.06, 0.47)
   ) +
     patchwork::plot_annotation(
       title = title,
