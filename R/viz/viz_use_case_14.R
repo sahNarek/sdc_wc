@@ -1,7 +1,7 @@
 #' Interval labels for 10-minute match bins
 MATCH_INTERVAL_LABELS <- c(
   "0-10", "11-20", "21-30", "31-40", "41-50",
-  "51-60", "61-70", "71-80", "81+"
+  "51-60", "61-70", "71-80", "81-90", "91-100"
 )
 
 SHARE_SECTION_LABELS <- c(
@@ -54,7 +54,110 @@ match_minute_interval <- function(minute) {
     minute <= 60 ~ "51-60",
     minute <= 70 ~ "61-70",
     minute <= 80 ~ "71-80",
-    TRUE ~ "81+"
+    minute <= 90 ~ "81-90",
+    TRUE ~ "91-100"
+  )
+}
+
+#' Inclusive minute bounds for each interval label
+interval_minute_bounds <- function(interval_label) {
+  bounds <- list(
+    "0-10" = c(0L, 10L),
+    "11-20" = c(11L, 20L),
+    "21-30" = c(21L, 30L),
+    "31-40" = c(31L, 40L),
+    "41-50" = c(41L, 50L),
+    "51-60" = c(51L, 60L),
+    "61-70" = c(61L, 70L),
+    "71-80" = c(71L, 80L),
+    "81-90" = c(81L, 90L),
+    "91-100" = c(91L, 100L)
+  )
+  bounds[[interval_label]]
+}
+
+#' Progress through an interval (0 at period start, 1 at period end)
+interval_minute_fraction <- function(minute) {
+  interval_label <- match_minute_interval(minute)
+  bounds <- interval_minute_bounds(interval_label)
+  span <- bounds[[2]] - bounds[[1]]
+  if (span <= 0) {
+    return(0)
+  }
+  (minute - bounds[[1]]) / span
+}
+
+#' Display label for a goal minute on the PPDA chart
+format_ppda_goal_minute_label <- function(minute) {
+  paste0(minute, "'")
+}
+
+#' Nudge overlapping goal labels that share similar x positions
+assign_ppda_goal_label_offsets <- function(goals_df,
+                                           home_team,
+                                           x_threshold = 0.65,
+                                           y_step = 0.28) {
+  if (nrow(goals_df) == 0) {
+    return(goals_df)
+  }
+
+  goals_df <- goals_df %>%
+    dplyr::arrange(.data$minute) %>%
+    dplyr::mutate(
+      label_x = .data$x_num,
+      label_y = .data$y + 0.12,
+      label_hjust = 0.5
+    )
+
+  for (i in seq_len(nrow(goals_df))) {
+    for (j in seq_len(i - 1L)) {
+      if (abs(goals_df$x_num[i] - goals_df$x_num[j]) < x_threshold) {
+        goals_df$label_y[i] <- max(goals_df$label_y[i], goals_df$label_y[j] + y_step)
+        is_home <- goals_df$team_name[i] == home_team
+        goals_df$label_x[i] <- if (is_home) {
+          goals_df$x_num[i] - 0.12
+        } else {
+          goals_df$x_num[i] + 0.12
+        }
+        goals_df$label_hjust[i] <- if (is_home) 1 else 0
+      }
+    }
+  }
+
+  goals_df
+}
+
+#' Interpolate goal position along the PPDA line segment for its interval
+interpolate_goal_on_ppda_line <- function(minute, team_name, ppda_df) {
+  interval_label <- match_minute_interval(minute)
+  idx <- match(interval_label, MATCH_INTERVAL_LABELS)
+  frac <- interval_minute_fraction(minute)
+  n_intervals <- length(MATCH_INTERVAL_LABELS)
+  whistle_segment_cap <- 0.92
+
+  team_ppda <- ppda_df %>%
+    dplyr::filter(.data$team_name == .env$team_name) %>%
+    dplyr::arrange(.data$interval) %>%
+    dplyr::pull(.data$ppda)
+
+  if (idx < n_intervals) {
+    y_start <- team_ppda[[idx]]
+    y_end <- team_ppda[[idx + 1]]
+    y <- y_start + frac * (y_end - y_start)
+    x_num <- idx + frac
+  } else {
+    # Stoppage-time goals sit on the segment before the final whistle (81-90 -> end)
+    y_start <- team_ppda[[idx - 1]]
+    y_end <- team_ppda[[idx]]
+    capped_frac <- frac * whistle_segment_cap
+    y <- y_start + capped_frac * (y_end - y_start)
+    x_num <- (idx - 1) + capped_frac
+  }
+
+  list(
+    x_num = x_num,
+    y = y,
+    interval = interval_label
   )
 }
 
@@ -565,23 +668,114 @@ compute_match_share_metrics <- function(team_match_stats_df,
     )
 }
 
+#' Goal markers for the PPDA interval chart (colored ball icons)
+compute_ppda_goal_markers <- function(events_df,
+                                      meta,
+                                      ppda_df,
+                                      home_color = SDC_PALETTE[["green"]],
+                                      away_color = SDC_PALETTE[["red"]],
+                                      root = get_project_root()) {
+  data <- ensure_viz_aliases(events_df)
+  home <- meta$home_team[[1]]
+
+  goals <- data %>%
+    dplyr::filter(
+      .data$`type.name` == "Shot",
+      .data$`shot.outcome.name` == "Goal",
+      !is.na(.data$minute)
+    ) %>%
+    dplyr::transmute(
+      minute = .data$minute,
+      team_name = .data$`team.name`,
+      interval = factor(
+        match_minute_interval(.data$minute),
+        levels = MATCH_INTERVAL_LABELS
+      ),
+      team_color = dplyr::if_else(.data$team_name == home, home_color, away_color)
+    )
+
+  if (nrow(goals) == 0) {
+    return(goals %>%
+      dplyr::mutate(
+        x_num = numeric(),
+        y = numeric(),
+        icon = character(),
+        minute_label = character(),
+        label_x = numeric(),
+        label_y = numeric(),
+        label_hjust = numeric()
+      ))
+  }
+
+  goals %>%
+    dplyr::arrange(.data$minute) %>%
+    dplyr::mutate(
+      position = purrr::pmap(
+        list(.data$minute, .data$team_name),
+        function(goal_minute, goal_team) {
+          interpolate_goal_on_ppda_line(goal_minute, goal_team, ppda_df)
+        }
+      ),
+      x_num = purrr::map_dbl(.data$position, "x_num"),
+      y = purrr::map_dbl(.data$position, "y"),
+      interval = factor(
+        purrr::map_chr(.data$position, "interval"),
+        levels = MATCH_INTERVAL_LABELS
+      )
+    ) %>%
+    dplyr::select(-"position") %>%
+    dplyr::group_by(.data$interval, .data$team_name) %>%
+    dplyr::mutate(
+      stack = dplyr::row_number(),
+      y = .data$y + (.data$stack - 1) * 0.06
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      icon = purrr::map_chr(.data$team_color, colored_ball_icon_path, root = root),
+      minute_label = purrr::map_chr(.data$minute, format_ppda_goal_minute_label),
+      label_x = .data$x_num,
+      label_hjust = 0.5
+    ) %>%
+    assign_ppda_goal_label_offsets(home_team = home)
+}
+
 #' Panel A — PPDA by 10-minute interval
 viz_ppda_interval_line <- function(ppda_df,
+                                   events_df = NULL,
                                    meta = NULL,
                                    home_color = SDC_PALETTE[["green"]],
                                    away_color = SDC_PALETTE[["red"]],
+                                   root = get_project_root(),
                                    title = "Pressing never really settled",
                                    subtitle = "Average PPDA by 10-minute period") {
+  if (!requireNamespace("ggimage", quietly = TRUE)) {
+    install.packages("ggimage", repos = "https://cloud.r-project.org")
+  }
+
   color_map <- stats::setNames(
     c(home_color, away_color),
     c(meta$home_team[[1]], meta$away_team[[1]])
   )
 
   plot_df <- ppda_df %>%
-    dplyr::arrange(.data$team_name, .data$interval)
+    dplyr::arrange(.data$team_name, .data$interval) %>%
+    dplyr::mutate(x_num = as.numeric(.data$interval))
 
-  ggplot(plot_df, aes(
-    x = .data$interval,
+  goal_markers <- if (!is.null(events_df)) {
+    compute_ppda_goal_markers(
+      events_df,
+      meta,
+      ppda_df,
+      home_color = home_color,
+      away_color = away_color,
+      root = root
+    )
+  } else {
+    NULL
+  }
+
+  p <- ggplot(plot_df, aes(
+    x = .data$x_num,
     y = .data$ppda,
     colour = .data$team_name,
     group = .data$team_name
@@ -593,13 +787,18 @@ viz_ppda_interval_line <- function(ppda_df,
       labels = c(meta$display_home[[1]], meta$display_away[[1]]),
       name = NULL
     ) +
+    scale_x_continuous(
+      breaks = seq_along(MATCH_INTERVAL_LABELS),
+      labels = MATCH_INTERVAL_LABELS,
+      expand = expansion(mult = c(0.02, 0.05))
+    ) +
     scale_y_continuous(expand = expansion(mult = c(0.05, 0.08))) +
     labs(
       title = title,
       subtitle = subtitle,
       x = NULL,
       y = "PPDA",
-      caption = "Lower values = more intense press. Interval PPDA computed from match events."
+      caption = "Lower values = more intense press. Ball icons mark goals on each team's PPDA line."
     ) +
     theme_sdc(base_size = 10) +
     theme(
@@ -610,7 +809,39 @@ viz_ppda_interval_line <- function(ppda_df,
       legend.justification = c(0, 1),
       legend.background = element_rect(fill = alpha("white", 0.85), colour = NA),
       axis.text.x = element_text(angle = 45, hjust = 1, size = 7.5)
-    )
+    ) +
+    coord_cartesian(clip = "off")
+
+  if (!is.null(goal_markers) && nrow(goal_markers) > 0) {
+    p <- p +
+      ggimage::geom_image(
+        data = goal_markers,
+        ggplot2::aes(
+          x = .data$x_num,
+          y = .data$y,
+          image = .data$icon
+        ),
+        inherit.aes = FALSE,
+        size = 0.045
+      ) +
+      ggplot2::geom_text(
+        data = goal_markers,
+        ggplot2::aes(
+          x = .data$label_x,
+          y = .data$label_y,
+          label = .data$minute_label,
+          hjust = .data$label_hjust
+        ),
+        inherit.aes = FALSE,
+        colour = goal_markers$team_color,
+        family = SDC_FONTS$body,
+        size = 2.4,
+        fontface = "bold",
+        vjust = 0
+      )
+  }
+
+  p
 }
 
 #' Panel B — goals vs non-penalty xG comparison
@@ -873,9 +1104,11 @@ viz_game_quality_grid <- function(events_df,
 
   panel_a <- viz_ppda_interval_line(
     ppda_df,
+    events_df = events_df,
     meta = meta,
     home_color = home_color,
-    away_color = away_color
+    away_color = away_color,
+    root = root
   )
   panel_b <- viz_goals_vs_xg_card(goals_xg)
   panel_c <- viz_match_share_sections_row(
