@@ -686,12 +686,14 @@ viz_player_skill_comparison <- function(events_df,
     away_color = tops$away$team_color[[1]],
     display_home = home_header,
     display_away = away_header,
-    bar_half = 0.26,
-    row_step = 1.08,
+    bar_half = 0.24,
+    row_step = 1.16,
+    bar_y_base = 0.35,
+    header_bar_gap = 0.78,
     value_label_size = 3.05,
     metric_label_size = 2.75,
     metric_label_family = SDC_FONTS$title,
-    metric_label_offset = 0.22
+    metric_label_offset = 0.24
   )
 
   panel +

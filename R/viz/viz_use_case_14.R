@@ -1227,14 +1227,18 @@ viz_match_share_section <- function(share_df_section,
                                     value_label_size = 2.5,
                                     metric_label_size = 2.35,
                                     metric_label_family = SDC_FONTS$body,
-                                    metric_label_offset = 0.14) {
+                                    metric_label_offset = 0.14,
+                                    bar_y_base = 1,
+                                    header_bar_gap = 0.55) {
   n_rows <- nrow(share_df_section)
 
   share_df_section <- share_df_section %>%
-    dplyr::mutate(y = (.env$n_rows - seq_along(.data$metric)) * .env$row_step + 1)
+    dplyr::mutate(
+      y = (.env$n_rows - seq_along(.data$metric)) * .env$row_step + .env$bar_y_base
+    )
 
-  y_bottom <- 0.45
-  y_top <- max(share_df_section$y) + bar_half + 0.55
+  y_bottom <- max(0.25, bar_y_base - bar_half - 0.15)
+  y_top <- max(share_df_section$y) + bar_half + header_bar_gap
 
   ggplot(share_df_section) +
     geom_rect(
