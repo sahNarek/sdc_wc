@@ -245,15 +245,20 @@ compute_network_player_pass_accuracy <- function(events_df,
     dplyr::rename(player_id = "player.id")
 }
 
-#' Pass-accuracy palette with wide light→dark spread for network nodes
-passing_network_accuracy_palette <- function(color, n = 9L) {
-  grDevices::colorRampPalette(c(
-    "#FFFFFF",
-    gradient_lightest(color, mix = 0.82),
-    gradient_lightest(color, mix = 0.52),
+#' Anchor colours for pass-accuracy encoding (no near-white lows)
+passing_network_accuracy_anchor_colors <- function(color) {
+  c(
+    gradient_lightest(color, mix = 0.62),
+    gradient_lightest(color, mix = 0.44),
+    gradient_lightest(color, mix = 0.26),
     color,
     gradient_darkest(color, amount = 0.36)
-  ))(n)
+  )
+}
+
+#' Pass-accuracy palette with wide light→dark spread for network nodes
+passing_network_accuracy_palette <- function(color, n = 9L) {
+  grDevices::colorRampPalette(passing_network_accuracy_anchor_colors(color))(n)
 }
 
 #' Non-linear stop positions so mid-range accuracies stay visibly distinct
@@ -280,13 +285,7 @@ passing_network_accuracy_color_value <- function(pass_accuracy) {
 passing_network_accuracy_palette_color <- function(color_value,
                                                    team_color,
                                                    n = 101L) {
-  anchor_colors <- c(
-    "#FFFFFF",
-    gradient_lightest(team_color, mix = 0.82),
-    gradient_lightest(team_color, mix = 0.52),
-    team_color,
-    gradient_darkest(team_color, amount = 0.36)
-  )
+  anchor_colors <- passing_network_accuracy_anchor_colors(team_color)
   anchor_values <- passing_network_accuracy_palette_values()
   colors <- grDevices::colorRampPalette(anchor_colors, space = "Lab")(max(9L, n))
 
@@ -545,13 +544,7 @@ build_passing_network_plot <- function(network,
   edges <- network$edges
   max_count <- max(edges$pass_count, na.rm = TRUE)
   min_count <- min(edges$pass_count, na.rm = TRUE)
-  accuracy_anchor_colors <- c(
-    "#FFFFFF",
-    gradient_lightest(team_color, mix = 0.82),
-    gradient_lightest(team_color, mix = 0.52),
-    team_color,
-    gradient_darkest(team_color, amount = 0.36)
-  )
+  accuracy_anchor_colors <- passing_network_accuracy_anchor_colors(team_color)
   accuracy_palette_values <- passing_network_accuracy_palette_values()
 
   size_range <- if (isTRUE(compact)) c(3.2, 8.5) else c(5.5, 13)
@@ -1084,6 +1077,262 @@ build_full_match_passing_network_panel <- function(events_df,
     )
 }
 
+#' Gradient bar for pass-accuracy legend (matches node colour scale)
+passing_network_accuracy_legend_bar <- function(p,
+                                                cx,
+                                                cy,
+                                                bar_half,
+                                                team_color,
+                                                bar_height = 0.016) {
+  fill_cols <- passing_network_accuracy_palette(team_color, n = 60L)
+  n_seg <- length(fill_cols)
+  seg_w <- (2 * bar_half) / n_seg
+  bar_df <- tibble::tibble(
+    x = seq(cx - bar_half + seg_w / 2, cx + bar_half - seg_w / 2, length.out = n_seg),
+    y = cy,
+    fill_colour = fill_cols
+  )
+
+  p +
+    ggplot2::geom_rect(
+      data = bar_df,
+      ggplot2::aes(
+        xmin = .data$x - seg_w / 2,
+        xmax = .data$x + seg_w / 2,
+        ymin = .data$y - bar_height,
+        ymax = .data$y + bar_height
+      ),
+      fill = bar_df$fill_colour,
+      colour = NA
+    )
+}
+
+#' Center legend for combined passing networks (status, size, pass accuracy)
+passing_network_center_legend <- function(home_color,
+                                          away_color,
+                                          pass_involvement_range,
+                                          pass_accuracy_home_range,
+                                          pass_accuracy_away_range,
+                                          icon_color = "#444444",
+                                          root = get_project_root()) {
+  title_style <- legend_title_ggpar()
+  label_style <- legend_label_ggpar()
+  title_style$size <- 2.35
+  label_style$size <- 2.15
+
+  pass_min <- pass_involvement_range[[1L]]
+  pass_max <- pass_involvement_range[[2L]]
+  home_acc_min <- pass_accuracy_home_range[[1L]]
+  home_acc_max <- pass_accuracy_home_range[[2L]]
+  away_acc_min <- pass_accuracy_away_range[[1L]]
+  away_acc_max <- pass_accuracy_away_range[[2L]]
+
+  star_icon <- central_player_star_icon_path(icon_color, root = root)
+  legend_df <- tibble::tibble(x = 0.5, y = 0.805, image = star_icon)
+
+  if (!requireNamespace("ggimage", quietly = TRUE)) {
+    install.packages("ggimage", repos = "https://cloud.r-project.org")
+  }
+
+  bar_half <- 0.34
+  bar_cx <- 0.5
+  home_bar_y <- 0.285
+  away_bar_y <- 0.225
+  home_label_y <- 0.252
+  away_label_y <- 0.192
+  label_x_lo <- 0.12
+  label_x_hi <- 0.88
+  size_y <- 0.575
+  size_label_y <- 0.525
+  size_x_lo <- 0.30
+  size_x_hi <- 0.70
+
+  p <- ggplot2::ggplot() +
+    ggplot2::annotate(
+      "point",
+      x = 0.5,
+      y = 0.955,
+      size = 2.5,
+      colour = icon_color,
+      fill = icon_color,
+      shape = 21,
+      stroke = 0.65
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.5,
+      y = 0.955,
+      label = "Starter",
+      vjust = 2.4,
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour
+    ) +
+    ggplot2::annotate(
+      "point",
+      x = 0.5,
+      y = 0.885,
+      size = 2.8,
+      colour = icon_color,
+      shape = 1,
+      stroke = 0.85
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.5,
+      y = 0.885,
+      label = "Substitute",
+      vjust = 2.4,
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour
+    ) +
+    ggplot2::annotate(
+      "point",
+      x = 0.5,
+      y = 0.805,
+      size = 2.5,
+      fill = "white",
+      colour = "white",
+      shape = 21,
+      stroke = 0
+    ) +
+    ggimage::geom_image(
+      data = legend_df,
+      ggplot2::aes(x = .data$x, y = .data$y, image = .data$image),
+      size = 0.034,
+      asp = 1
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.5,
+      y = 0.805,
+      label = "Most involved",
+      vjust = 2.4,
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.5,
+      y = 0.655,
+      label = "Total passes",
+      family = title_style$family,
+      size = title_style$size,
+      colour = title_style$colour,
+      fontface = title_style$fontface
+    ) +
+    ggplot2::annotate(
+      "point",
+      x = size_x_lo,
+      y = size_y,
+      size = 2.2,
+      colour = "#555555",
+      fill = "#555555",
+      shape = 21,
+      stroke = 0.55
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = size_x_lo,
+      y = size_label_y,
+      label = format(pass_min, big.mark = ","),
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour
+    ) +
+    ggplot2::annotate(
+      "point",
+      x = size_x_hi,
+      y = size_y,
+      size = 4.6,
+      colour = "#555555",
+      fill = "#555555",
+      shape = 21,
+      stroke = 0.55
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = size_x_hi,
+      y = size_label_y,
+      label = format(pass_max, big.mark = ","),
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = 0.5,
+      y = 0.335,
+      label = "Pass accuracy",
+      family = title_style$family,
+      size = title_style$size,
+      colour = title_style$colour,
+      fontface = title_style$fontface
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = label_x_lo,
+      y = home_label_y,
+      label = scales::percent(home_acc_min, accuracy = 1),
+      hjust = 0,
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = label_x_hi,
+      y = home_label_y,
+      label = scales::percent(home_acc_max, accuracy = 1),
+      hjust = 1,
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = label_x_lo,
+      y = away_label_y,
+      label = scales::percent(away_acc_min, accuracy = 1),
+      hjust = 0,
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = label_x_hi,
+      y = away_label_y,
+      label = scales::percent(away_acc_max, accuracy = 1),
+      hjust = 1,
+      family = label_style$family,
+      size = label_style$size,
+      colour = label_style$colour
+    )
+
+  p <- passing_network_accuracy_legend_bar(
+    p,
+    cx = bar_cx,
+    cy = home_bar_y,
+    bar_half = bar_half,
+    team_color = home_color
+  )
+  p <- passing_network_accuracy_legend_bar(
+    p,
+    cx = bar_cx,
+    cy = away_bar_y,
+    bar_half = bar_half,
+    team_color = away_color
+  )
+
+  p +
+    ggplot2::coord_cartesian(xlim = c(0, 1), ylim = c(0.08, 1), clip = "off") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(0, 0, 0, 0))
+}
+
 #' Compact starter / substitute legend for passing networks
 passing_network_status_legend <- function(icon_color = "#444444",
                                           layout = c("vertical", "horizontal"),
@@ -1232,7 +1481,7 @@ viz_match_passing_networks_combined <- function(events_df,
                                                 min_passes_home = 4L,
                                                 min_passes_away = 4L,
                                                 title = "Passing networks",
-                                                subtitle = "Full match · darker links = more passes · larger nodes = pass involvement · darker nodes = higher pass accuracy") {
+                                                subtitle = "Full match · darker links = more passes between players") {
   if (!requireNamespace("patchwork", quietly = TRUE)) {
     install.packages("patchwork", repos = "https://cloud.r-project.org")
   }
@@ -1247,6 +1496,26 @@ viz_match_passing_networks_combined <- function(events_df,
 
   home_label <- meta$display_home[[1]] %||% home_team
   away_label <- meta$display_away[[1]] %||% away_team
+
+  net_home <- compute_passing_network(
+    events_df,
+    team_name = home_team,
+    match_id = match_id,
+    min_passes = min_passes_home
+  )
+  net_away <- compute_passing_network(
+    events_df,
+    team_name = away_team,
+    match_id = match_id,
+    min_passes = min_passes_away
+  )
+
+  pass_involvement_range <- range(
+    c(net_home$nodes$total_passes, net_away$nodes$total_passes),
+    na.rm = TRUE
+  )
+  pass_accuracy_home_range <- range(net_home$nodes$pass_accuracy, na.rm = TRUE)
+  pass_accuracy_away_range <- range(net_away$nodes$pass_accuracy, na.rm = TRUE)
 
   p_home <- build_full_match_passing_network_panel(
     events_df,
@@ -1268,15 +1537,18 @@ viz_match_passing_networks_combined <- function(events_df,
     label_size = 3.5
   )
 
-  status_legend <- passing_network_status_legend(
-    icon_color = "#444444",
-    layout = "vertical"
+  center_legend <- passing_network_center_legend(
+    home_color = home_color,
+    away_color = away_color,
+    pass_involvement_range = pass_involvement_range,
+    pass_accuracy_home_range = pass_accuracy_home_range,
+    pass_accuracy_away_range = pass_accuracy_away_range
   )
 
   patchwork::wrap_plots(
-    list(p_home, status_legend, p_away),
+    list(p_home, center_legend, p_away),
     ncol = 3,
-    widths = c(0.47, 0.06, 0.47)
+    widths = c(0.46, 0.08, 0.46)
   ) +
     patchwork::plot_annotation(
       title = title,
