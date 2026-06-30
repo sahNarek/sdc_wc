@@ -2633,6 +2633,23 @@ build_set_piece_shot_reference_table <- function(possessions_df) {
     )
 }
 
+#' Nudge shot-routine markers inward so corner/edge labels stay visible
+nudge_heatmap_shot_markers <- function(shot_origins_df) {
+  shot_origins_df %>%
+    dplyr::mutate(
+      marker_x = dplyr::case_when(
+        .data$pitch_x >= 118 ~ .data$pitch_x - 2,
+        .data$pitch_x <= 2 ~ .data$pitch_x + 2,
+        TRUE ~ .data$pitch_x
+      ),
+      marker_y = dplyr::case_when(
+        .data$pitch_y >= 78 ~ .data$pitch_y - 5.5,
+        .data$pitch_y <= 2 ~ .data$pitch_y + 5.5,
+        TRUE ~ .data$pitch_y
+      )
+    )
+}
+
 #' Completed pass arrows for attacking-zone set-piece possessions
 collect_attacking_set_piece_pass_edges <- function(events_df,
                                                  team_name,
@@ -2767,7 +2784,7 @@ build_set_piece_origin_heatmap <- function(events_df,
     team_name = team_name,
     match_id = match_id
   ) %>%
-    dplyr::filter(.data$possession %in% shot_possessions_df$possession)
+    dplyr::filter(.data$possession %in% possessions_df$possession)
 
   if (nrow(set_pieces) == 0) {
     return(ggplot2::ggplot() + ggplot2::theme_void())
@@ -2821,16 +2838,26 @@ build_set_piece_origin_heatmap <- function(events_df,
     dplyr::ungroup() %>%
     dplyr::select(-.data$norm) %>%
     dplyr::left_join(
-      shot_possessions_df %>%
-        dplyr::select(.data$possession, .data$outcome_bucket, .data$minute),
+      possessions_df %>%
+        dplyr::select(.data$possession, .data$outcome_bucket, .data$minute, .data$ended_shot),
       by = "possession"
     ) %>%
     dplyr::left_join(routine_palette, by = "possession") %>%
     dplyr::mutate(
       pitch_x = pmin(pmax(.data$pitch_x, x_min), x_max),
       pitch_y = pmin(pmax(.data$pitch_y, 0), 80),
+      is_shot_routine = .data$possession %in% shot_possessions_df$possession,
+      marker_color = dplyr::if_else(
+        .data$is_shot_routine,
+        .data$routine_color,
+        SDC_ARTICLE_COLORS$grid
+      ),
       routine_id = factor(as.character(.data$routine_id), levels = names(routine_colors))
     )
+
+  shot_origins <- origins %>%
+    dplyr::filter(.data$is_shot_routine) %>%
+    nudge_heatmap_shot_markers()
 
   x_breaks <- seq(x_min, x_max, length.out = n_x_bins + 1L)
   y_breaks <- seq(0, 80, length.out = n_y_bins + 1L)
@@ -2878,6 +2905,8 @@ build_set_piece_origin_heatmap <- function(events_df,
   }
   legend_limit <- min(0.5, max(0.15, ceiling(legend_max * 100 / 5) * 5 / 100))
   plot_x_max <- x_max + GOAL_NET_DEPTH_SB
+  attack_arrow_pad <- 6.5
+  attack_arrow_y <- -attack_arrow_pad + 1.2
 
   p <- ggplot2::ggplot() +
     ggplot2::annotate(
@@ -3001,13 +3030,11 @@ build_set_piece_origin_heatmap <- function(events_df,
       )
   }
 
-  legend_routine_ids <- as.character(seq_len(nrow(routine_palette)))
-
   p <- p +
     ggplot2::geom_point(
-      data = origins,
-      ggplot2::aes(x = .data$pitch_x, y = .data$pitch_y),
-      fill = origins$routine_color,
+      data = shot_origins,
+      ggplot2::aes(x = .data$marker_x, y = .data$marker_y),
+      fill = shot_origins$routine_color,
       colour = "white",
       shape = 21,
       stroke = 0.45,
@@ -3016,10 +3043,10 @@ build_set_piece_origin_heatmap <- function(events_df,
       inherit.aes = FALSE
     ) +
     ggplot2::geom_text(
-      data = origins,
+      data = shot_origins,
       ggplot2::aes(
-        x = .data$pitch_x,
-        y = .data$pitch_y,
+        x = .data$marker_x,
+        y = .data$marker_y,
         label = as.character(.data$routine_id)
       ),
       family = SDC_FONTS$title,
@@ -3028,7 +3055,12 @@ build_set_piece_origin_heatmap <- function(events_df,
       colour = "white"
     ) +
     ggplot2::geom_segment(
-      data = tibble::tibble(x = 22, xend = 98, y = 5, yend = 5),
+      data = tibble::tibble(
+        x = 28,
+        xend = 88,
+        y = attack_arrow_y,
+        yend = attack_arrow_y
+      ),
       ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
       arrow = grid::arrow(
         length = grid::unit(0.08, "inches"),
@@ -3047,29 +3079,15 @@ build_set_piece_origin_heatmap <- function(events_df,
     ) +
     ggplot2::scale_colour_manual(
       values = routine_colors,
-      name = NULL,
-      breaks = legend_routine_ids,
-      guide = ggplot2::guide_legend(
-        nrow = 1,
-        byrow = TRUE,
-        override.aes = list(
-          alpha = 1,
-          linewidth = 0.9,
-          linetype = "dashed",
-          shape = 16,
-          size = 3
-        ),
-        keywidth = ggplot2::unit(0.4, "cm"),
-        keyheight = ggplot2::unit(0.4, "cm")
-      )
+      guide = "none"
     ) +
     ggplot2::scale_x_continuous(limits = c(x_min, plot_x_max), expand = c(0, 0)) +
-    ggplot2::scale_y_continuous(limits = c(0, 80), expand = c(0, 0)) +
+    ggplot2::scale_y_continuous(limits = c(-attack_arrow_pad, 80), expand = c(0, 0)) +
     ggplot2::coord_flip() +
     ggplot2::labs(
       title = "Set-piece locations & passing",
       subtitle = paste0(
-        "Markers 1–", nrow(origins), " = shot routines · dashed = passes (", nrow(pass_edges), ")",
+        "Markers 1–4 = shot routines · dashed = passes (", nrow(pass_edges), ")",
         " · solid = shots (", nrow(shot_edges), ")"
       ),
       x = NULL,
@@ -3091,16 +3109,7 @@ build_set_piece_origin_heatmap <- function(events_df,
         hjust = 0.5,
         margin = ggplot2::margin(b = 2)
       ),
-      legend.position = "top",
-      legend.direction = "horizontal",
-      legend.justification = "center",
-      legend.text = ggplot2::element_text(
-        family = SDC_FONTS$body,
-        size = 6.5,
-        colour = SDC_ARTICLE_COLORS$ink
-      ),
-      legend.key = ggplot2::element_rect(fill = NA, colour = NA),
-      legend.margin = ggplot2::margin(b = 1),
+      legend.position = "none",
       axis.text = ggplot2::element_blank(),
       axis.title = ggplot2::element_blank(),
       panel.grid = ggplot2::element_blank(),
@@ -3296,7 +3305,7 @@ build_set_piece_type_distribution_plot <- function(performance) {
   build_set_piece_count_bar(
     data,
     title = "Set-piece types",
-    subtitle = paste0(performance$total_set_pieces, " attacking-zone routines"),
+    # subtitle = paste0(performance$total_set_pieces, " attacking-zone routines"),
     fill_colors = c(
       "Corners" = SDC_PALETTE[["purple"]],
       "Free kicks" = SDC_PALETTE[["blue"]]
@@ -3667,7 +3676,7 @@ viz_portugal_set_piece_networks <- function(events_df,
   if (is.null(subtitle)) {
     subtitle <- paste0(
       "Key routines, locations, and outcomes from ",
-      performance$total_set_pieces, " attacking-zone dead balls · ",
+      performance$total_set_pieces, " set pieces · ",
       performance$with_goal, " goals · ",
       format(round(performance$total_xg, 2), nsmall = 2), " total xG"
     )
